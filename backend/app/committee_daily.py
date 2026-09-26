@@ -398,6 +398,7 @@ async def attach_claims(doc: Dict[str, Any], book: Any, run_time: str) -> None:
             # Store narrative row
             from .migrated_tables import committee_narratives_table
             with db.engine.begin() as conn:
+                conn.execute(committee_narratives_table.delete().where(committee_narratives_table.c.run_id == run_id))  # re-runs replace
                 conn.execute(
                     committee_narratives_table.insert().values(
                         run_id=run_id,
@@ -417,6 +418,7 @@ async def attach_claims(doc: Dict[str, Any], book: Any, run_time: str) -> None:
             # Store a skipped narrative row so the admin UI knows it wasn't attempted
             from .migrated_tables import committee_narratives_table
             with db.engine.begin() as conn:
+                conn.execute(committee_narratives_table.delete().where(committee_narratives_table.c.run_id == run_id))  # re-runs replace
                 conn.execute(
                     committee_narratives_table.insert().values(
                         run_id=run_id,

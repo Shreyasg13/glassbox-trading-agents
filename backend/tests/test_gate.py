@@ -590,3 +590,45 @@ def test_admin_verification_routes_require_admin():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# --- Hotfix 2026-09-26: found in production. BLS snapshots describe a MONTH ("2026-08"), which crashed the staleness check
+# and, through it, the whole gate run. ---
+from datetime import date as _date
+
+
+@pytest.mark.parametrize("raw,want", [
+    ("2026-08", _date(2026, 8, 31)),
+    ("2026-02", _date(2026, 2, 28)),
+    ("2028-02", _date(2028, 2, 29)),
+    ("2026-12", _date(2026, 12, 31)),
+    ("2026-09-18", _date(2026, 9, 18)),
+    ("2026-09-18T10:00:00+00:00", _date(2026, 9, 18)),
+])
+def test_as_of_dates_accept_months_as_their_last_day(raw, want):
+    assert gate._iso_to_date(raw) == want
+
+
+def test_staleness_of_a_monthly_bls_snapshot_is_measured_from_month_end():
+    claim = {"id": "u1", "metric": "unemployment", "source": "bls", "value": 4.3}
+    fresh = gate.check_staleness(claim, {"as_of": "2026-08", "fetched_at": "2026-09-26T19:00:00+00:00"}, "2026-09-26")
+    stale = gate.check_staleness(claim, {"as_of": "2026-06", "fetched_at": "2026-09-26T19:00:00+00:00"}, "2026-09-26")
+    assert fresh.status == "pass"  # 26 days after 2026-08-31, inside the 35-day macro window
+    assert stale.status == "warn"
+
+
+def test_one_unparseable_value_fails_that_check_but_never_stops_the_gate():
+    good = {"id": "p1", "metric": "close", "source": "pricebook", "value": 100.0, "period": "2026-09-18"}
+    odd = {"id": "b1", "metric": "unemployment", "source": "bls", "value": 4.3, "source_path": "/0/value"}
+    inputs = {
+        "claims": [odd, good],
+        "snapshots_by_claim_id": {"b1": ({"as_of": "not-a-date", "fetched_at": "2026-09-18T10:00:00+00:00"}, [{"value": 4.3}])},
+        "run_time": "2026-09-18T12:00:00+00:00", "run_date": "2026-09-18",
+        "prices": {"2026-09-18": 100.0}, "recomputed_risk": {}, "narrative_row": None,
+    }
+    results = gate.verify_run(inputs)  # must not raise
+    errs = [r for r in results if r.reason.startswith("check error")]
+    assert errs and all(r.status == "fail" and r.claim_id == "b1" for r in errs)
+    assert any(r.claim_id == "p1" and r.check_type == "price" and r.status == "pass" for r in results)
+    s = gate.summarize(results)
+    assert s["ok"] is False and s["verified_claims"] == 1  # the odd claim is not counted as verified; the good one is
