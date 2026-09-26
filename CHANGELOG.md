@@ -6,6 +6,10 @@ into a dated release with a git tag.
 
 ## [Unreleased]
 
+### Changed
+- Removed the "For Advisors" section and its nav link. It pitched paid advisor features (white-label, multi-client,
+  compliance export) and showed two testimonials attributed to named professionals that were not real customers.
+
 ### Fixed
 - The A6 gate crashed on monthly data: BLS snapshots describe a month (`2026-08`), which the staleness check could not read,
   so no gate results were stored for any run. A month now counts as its last day. Found by the first production check.
