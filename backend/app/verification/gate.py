@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from . import config
-from .. import claims, narrative
+from .. import claims, narrative, snapshot_store
 
 
 @dataclass(frozen=True)
@@ -91,6 +91,11 @@ def check_traceability(claim: Dict[str, Any], payload: Optional[Any], prices: Op
     """Verify that a claim's value matches its source using claims.check_claim.
 
     Snapshot-source claim whose snapshot payload is missing -> fail ("snapshot not found").
+
+    Tolerance (S3 T4b): the plan allows 0.5% relative or rounding at the displayed precision. Claim values are COPIED
+    from the source (and derived values recomputed from the same inputs), so this check stays exact: a relative
+    difference of 1e-9 at most, which only absorbs float noise. That is stricter than the plan, which is allowed.
+    The plan's looser tolerance (config.RENDER_TOLERANCE_REL) is for numbers as rendered to a user (T7).
     """
     claim_id = claim.get("id")
     source = claim.get("source")
@@ -427,6 +432,65 @@ def check_narrative(narrative_row: Optional[Dict[str, Any]], claims_for_run: Lis
     )
 
 
+def check_snapshot_integrity(claim: Dict[str, Any], snapshot_meta: Dict[str, Any], payload: Any) -> Result:
+    """The snapshot payload still hashes to the payload_hash stored with it (plan T4 check 4).
+
+    Recomputes sha256 over the same canonical JSON snapshot_store hashed when it stored the snapshot. A payload changed
+    after it was stored (tampered or corrupted) fails; so does a snapshot with no stored hash.
+    """
+    claim_id = claim.get("id")
+    stored = snapshot_meta.get("payload_hash")
+    if not stored:
+        return Result(
+            check_type="snapshot_integrity",
+            status="fail",
+            claim_id=claim_id,
+            expected=None,
+            observed=None,
+            reason="snapshot metadata missing payload_hash",
+        )
+
+    actual = snapshot_store._payload_hash(payload)
+    ok = actual == stored
+    return Result(
+        check_type="snapshot_integrity",
+        status="pass" if ok else "fail",
+        claim_id=claim_id,
+        expected=str(stored),
+        observed=actual,
+        reason="payload matches its stored hash" if ok else "payload does not match its stored hash",
+    )
+
+
+def check_unit(claim: Dict[str, Any]) -> Result:
+    """The claim's unit is the one expected for its metric (config.EXPECTED_UNITS), so a percentage and a ratio are never
+    compared as if they were the same kind of number. Different unit -> fail; metric not in the table -> warn."""
+    claim_id = claim.get("id")
+    metric = claim.get("metric")
+    unit = claim.get("unit")
+    expected = config.EXPECTED_UNITS.get(metric)
+
+    if expected is None:
+        return Result(
+            check_type="unit",
+            status="warn",
+            claim_id=claim_id,
+            expected=None,
+            observed=str(unit),
+            reason=f"no expected unit for metric {metric}",
+        )
+
+    ok = unit == expected
+    return Result(
+        check_type="unit",
+        status="pass" if ok else "fail",
+        claim_id=claim_id,
+        expected=expected,
+        observed=str(unit),
+        reason=f"unit {unit} as expected" if ok else f"unit {unit}, expected {expected}",
+    )
+
+
 def _safe(check, *args) -> Result:
     """Run one check. A check that meets data it cannot handle records a FAIL with the reason (the claim is then not
     counted as verified) instead of raising: one odd value must never stop the gate from recording the rest."""
@@ -472,6 +536,13 @@ def verify_run(inputs: Dict[str, Any]) -> List[Result]:
 
         # Traceability
         results.append(_safe(check_traceability, claim, payload, prices))
+
+        # Unit (every claim)
+        results.append(_safe(check_unit, claim))
+
+        # Snapshot integrity (every claim that has a snapshot)
+        if snap_info:
+            results.append(_safe(check_snapshot_integrity, claim, snapshot_meta or {}, payload))
 
         # Point in time (only for snapshot sources)
         if claim.get("source") not in ("risk", "pricebook") and snapshot_meta:
