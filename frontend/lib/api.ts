@@ -1,7 +1,7 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8000/ws/signals";
 
-import type { GateHealth, LedgerRow, LedgerVerify } from "@/lib/types";
+import type { ComplianceAction, ComplianceEvent, ComplianceRule, GateHealth, LedgerRow, LedgerVerify } from "@/lib/types";
 
 export function apiUrl(path: string): string {
   return `${API_URL}${path}`;
@@ -71,6 +71,23 @@ export async function fetchLedger(
 
 export async function verifyLedger(token: string | undefined): Promise<LedgerVerify> {
   return apiFetch<LedgerVerify>(`/api/admin/ledger/verify`, { token, method: "POST" });
+}
+
+// ---- Compliance API ----
+
+export async function fetchComplianceEvents(
+  token: string | undefined,
+  opts: { action?: ComplianceAction | ""; from?: string; to?: string; limit?: number } = {}
+): Promise<ComplianceEvent[]> {
+  const params = new URLSearchParams({ limit: String(opts.limit ?? 200) });
+  if (opts.action) params.set("action", opts.action);
+  if (opts.from) params.set("from", opts.from);
+  if (opts.to) params.set("to", opts.to);
+  return apiFetch<ComplianceEvent[]>(`/api/admin/compliance/events?${params}`, { token });
+}
+
+export async function fetchComplianceRules(token: string | undefined): Promise<ComplianceRule[]> {
+  return apiFetch<ComplianceRule[]>(`/api/admin/compliance/rules`, { token });
 }
 
 // ---- Gate health API (S3 T14) ----

@@ -7,6 +7,20 @@ into a dated release with a git tag.
 ## [Unreleased]
 
 ### Added
+- **A7 compliance filter** (`app/compliance/filter.py`) (T8). Deterministic, no model calls. `check(text, channel=...)` is
+  pure and returns the (possibly rewritten) text, the most severe action (`blocked` > `flagged` > `rewritten` > `pass`) and
+  the rule hits; `record(result, run_id)` writes the hits to the new `compliance_events` table (Alembic 0006) and never
+  raises. Rules: promotional phrases ("guaranteed returns", "can't lose", "risk-free", ...), direct advice ("you should
+  buy", "I'd buy AAPL", "Buy AAPL now!") and personalized instructions on the reader's holdings ("sell your AAPL" for real
+  tickers, "your portfolio should") block; the same words quoted or reported ("the CEO said ...") are flagged instead; "act
+  now" is flagged; performance mentions ("returned 12%", "beat the market by") without a `{{ledger:...}}` reference are
+  flagged; a missing disclaimer is appended (the only rewrite; inside `<body>` and escaped for HTML). Matching sees through
+  HTML tags and entities. Neutral research wording ("the committee voted to buy", "the risk-free rate", "guaranteed by the
+  US government", "reduce your US exposure", "2 of your 5 stocks") passes.
+- **Rules as data** in `backend/config/compliance_rules.json` (path overridable with `GLASSBOX_COMPLIANCE_RULES_PATH`). The
+  build plan named `rules.yaml`; PyYAML is not installed and adding a dependency was out of scope, so the file is JSON.
+- **Admin → Compliance tab** and `GET /api/admin/compliance/events?from&to&action&limit`, `GET /api/admin/compliance/rules`
+  (admin only): the log of rule hits (time, channel, rule, action, matched text) with an action filter, and the loaded rules.
 - **Two more A6 gate checks** (T4b), stored with the others for every run. **Snapshot integrity**: each claim's snapshot
   payload must still hash to the `payload_hash` stored with it (same canonical JSON as the snapshot store); a changed payload
   or a missing hash fails, and that number is not counted as verified. **Units**: each claim's unit must be the one expected
@@ -34,6 +48,15 @@ into a dated release with a git tag.
   the reason (that number is then not counted as verified) and the rest of the run is still recorded.
 - Re-running the claims step for a saved decision no longer duplicates its claims: the claims table is append-only, so the
   first set stored for a run is kept and reused. Narrative rows for a run are replaced instead of failing on a duplicate.
+
+### Built but switched off
+- The compliance filter is not yet called by any output (report, digest, assistant, speech); T5 wires it into `publish()`
+  after the A6 gate. Until then nothing is blocked or rewritten and the Compliance log stays empty.
+
+### Known limitations
+- A performance mention passes when the text carries any `{{ledger:...}}` reference, not one next to each mention; it is
+  flagged, not blocked, until T12 renders ledger references. The phrase lists are English only and deliberately short to
+  avoid false positives on research wording, so they will not catch every paraphrase.
 
 ## [s3-part1] — 2026-09-26 — S3 "Trustworthy MVP", part 1 (T0–T4, T9, T10, T11)
 

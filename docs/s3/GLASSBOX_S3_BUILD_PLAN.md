@@ -328,8 +328,8 @@ ADMIN   GET  /admin/flags      POST /admin/flags/{key}
 - [ ] T5 Route all outputs through `publish()`
 - [ ] T6 Quarantine and admin review
 - [ ] T7 User evidence view
-- [ ] T8 A7 compliance filter
-- [x] T9 Disclaimer config (the compliance log tab moved to T8: it needs `compliance_events`)
+- [x] T8 A7 compliance filter (filter built; wired into outputs by T5)
+- [x] T9 Disclaimer config (the compliance log tab moved to T8: it needs `compliance_events`; the Compliance tab now exists)
 - [x] T10 Point-in-time snapshot store
 - [x] T11 Hash-chained ledger
 - [ ] T12 Forward-only scoring
@@ -381,5 +381,6 @@ ADMIN   GET  /admin/flags      POST /admin/flags/{key}
 | 2026-09-26 | T11 | `ledger_calls` (Alembic 0003): append-only (triggers on SQLite and Postgres), sha256 hash chain, `BEGIN IMMEDIATE`/table lock for concurrent appends; admin Ledger tab + verify. Accepted first time; reviewer verified 180 concurrent appends and tamper detection at the exact row | PR #25 `s3/T11-ledger` |
 | 2026-09-26 | T3 | `claims` + `committee_narratives` (Alembic 0004): deterministic claims with exact JSON pointers, derived values from a fixed FORMULAS table checked by an `ast` allow-list (no eval); placeholder-only narrative behind `pipeline.claims` (default off); decisions proven identical. 3 rounds incl. a security fix | PR #26 `s3/T3-claims` |
 | 2026-09-26 | T4 | `verification_results` (Alembic 0005): pure A6 checks (traceability, point-in-time, staleness, price, risk, narrative) + runner wired after the claims step; badge counts fully verified claims; 40 gate tests. Finished by the reviewer after the worker hit the free-model daily limit | PR #27 `s3/T4-a6-gate` |
+| 2026-09-26 | T8 | `compliance_events` (Alembic 0006); pure `compliance.check()` + never-raising `record()`; rules as data in `backend/config/compliance_rules.json` (JSON, not the planned rules.yaml: PyYAML is not installed): promotional phrases, direct advice and personalized holding instructions (real tickers only) block, but are flagged when quoted or reported; "act now" and performance mentions without `{{ledger:...}}` flag; a missing disclaimer is appended (the only rewrite, HTML-aware); matching sees through HTML; admin Compliance tab + `/api/admin/compliance/events` and `/rules`; 113 rule tests (133 in `test_compliance.py`). One review round (false positives on real text, HTML, regex performance). Filter built; wired into outputs by T5 | branch `s3/T8-compliance` |
 | 2026-09-26 | T4b | Closed the A6 gaps against T4 (no migration): pure `check_snapshot_integrity` (payload re-hashed with `snapshot_store`'s canonical helper vs stored `payload_hash`) and `check_unit` (`EXPECTED_UNITS` for all 21 metrics `build_claims` emits; mismatch fails, unknown warns), both run by `verify_run` through `_safe` and stored like the others. Tolerance: traceability stays exact (values are copied); `RENDER_TOLERANCE_REL = 0.005` kept for T7. Latency test (25 claims) well under 200 ms. Config stays in `verification/config.py`, not the plan's `config.yaml` (typed, reviewed in code, no loader) | branch `s3/T4b-gate-gaps` |
 | 2026-09-26 | T14 | Gate health tab (read-only, no migration): pure aggregates in `verification/health.py` (daily claim pass rate via `gate.summarize`'s rule, runs ok, top five failing checks with most common reason, top five failing metrics joined to `claims`); `GET /api/admin/gate-health?from=&to=` (default 30 days, >366 days -> 400); inline-SVG 0–100% chart; 17 tests; 1 review round | branch `s3/T14-gate-health` |

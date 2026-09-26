@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from .. import claims, db, jobs, narrative, orchestration, snapshot_store, verification
+from .. import claims, compliance, db, jobs, narrative, orchestration, snapshot_store, verification
 from ..verification import gate, health
 from ..auth import TokenPayload, require_admin
 from ..models import (
@@ -433,6 +433,78 @@ async def get_verification_summary(date: str) -> Dict[str, Any]:
     run_ids = [r["id"] for r in db.list_committee_runs_for_date(date) if not str(r["id"]).startswith(("ask:", "chal:"))]
     return {"date": date, "summaries": [{"run_id": rid, "summary": _summary(_verification_rows(rid))} for rid in run_ids]}
 
+
+# ---- Compliance (S3 T8) ----
+
+from datetime import date as _date, datetime as _datetime, timedelta as _timedelta
+from ..migrated_tables import compliance_events_table
+
+COMPLIANCE_ACTIONS = ("blocked", "rewritten", "flagged")
+
+
+class ComplianceEventItem(BaseModel):
+    id: str
+    run_id: Optional[str] = None
+    channel: str
+    rule_id: str
+    matched_text: str
+    action: str  # blocked | rewritten | flagged
+    created_at: str
+
+
+def _compliance_bound(value: str, name: str, *, upper: bool) -> tuple[str, bool]:
+    """A `from`/`to` query value as (created_at bound in the stored format, inclusive?). A bare date covers that whole day."""
+    try:
+        if len(value) == 10:
+            day = _date.fromisoformat(value)
+            if upper:
+                return f"{(day + _timedelta(days=1)).isoformat()}T00:00:00.000000+00:00", False
+            return f"{day.isoformat()}T00:00:00.000000+00:00", True
+        return compliance.filter.iso_timestamp(_datetime.fromisoformat(value.replace("Z", "+00:00"))), True
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"{name} must be a date (YYYY-MM-DD) or an ISO timestamp")
+
+
+@router.get("/compliance/events")
+async def list_compliance_events(
+    from_: Optional[str] = Query(None, alias="from"),
+    to: Optional[str] = None,
+    action: Optional[str] = None,
+    limit: int = 100,
+) -> List[ComplianceEventItem]:
+    """Compliance filter hits, newest first."""
+    limit = max(1, min(limit, 500))
+    stmt = select(compliance_events_table)
+    if from_:
+        bound, _ = _compliance_bound(from_, "from", upper=False)
+        stmt = stmt.where(compliance_events_table.c.created_at >= bound)
+    if to:
+        bound, inclusive = _compliance_bound(to, "to", upper=True)
+        col = compliance_events_table.c.created_at
+        stmt = stmt.where(col <= bound if inclusive else col < bound)
+    if action:
+        if action not in COMPLIANCE_ACTIONS:
+            raise HTTPException(status_code=400, detail=f"action must be one of {', '.join(COMPLIANCE_ACTIONS)}")
+        stmt = stmt.where(compliance_events_table.c.action == action)
+    stmt = stmt.order_by(compliance_events_table.c.created_at.desc(), compliance_events_table.c.id).limit(limit)
+    with db.engine.connect() as conn:
+        rows = conn.execute(stmt).fetchall()
+    return [
+        ComplianceEventItem(
+            id=r.id, run_id=r.run_id, channel=r.channel, rule_id=r.rule_id, matched_text=r.matched_text or "",
+            action=r.action, created_at=r.created_at,
+        )
+        for r in rows
+    ]
+
+
+@router.get("/compliance/rules")
+async def list_compliance_rules() -> List[Dict[str, Any]]:
+    """The rules the filter has loaded (from config/compliance_rules.json)."""
+    try:
+        return [r.public() for r in compliance.load_rules()]
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=f"compliance rules could not be loaded: {exc}")
 
 # ---- Gate health (S3 T14) ----
 

@@ -533,6 +533,33 @@ export type LedgerVerify = {
   reason: string;
 };
 
+// ---- Compliance filter (admin) ----
+
+export type ComplianceAction = "blocked" | "rewritten" | "flagged";
+
+export type ComplianceEvent = {
+  id: string;
+  run_id: string | null;
+  channel: string;
+  rule_id: string;
+  matched_text: string;
+  action: ComplianceAction;
+  created_at: string;
+};
+
+export type ComplianceRule = {
+  id: string;
+  description: string;
+  kind: "phrase" | "regex" | "requires";
+  action: "block" | "rewrite" | "flag";
+  patterns?: string[];
+  allow?: string[];
+  unless?: string;
+  reported_action?: "flag";
+  pattern?: string;
+  replacement?: string;
+};
+
 // ---- Gate health (admin, S3 T14) ----
 
 export type GateHealthDay = {

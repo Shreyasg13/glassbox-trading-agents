@@ -1,0 +1,119 @@
+{
+  "_comment": "A7 compliance rules (S3 T8). Data, not code: app/compliance/filter.py reads this file once. The build plan says rules.yaml; PyYAML is not installed, so JSON. Matching is case-insensitive and runs on the text with HTML tags removed and entities decoded. kind: phrase (literal phrases, word boundaries, any whitespace between words, straight or curly apostrophes, hyphen or space in hyphenated words) | regex | requires (text must contain `pattern`). action: block | flag | rewrite (rewrite only for requires: appends `replacement`). allow: phrases; a match that overlaps one is harmless. unless: a regex; when it occurs anywhere in the text the rule does not fire. reported_action: the action for a match inside quotation marks or after a reporting verb (said, told, according to), i.e. someone else's words being reported. Tokens: {{disclaimer}} is the text of config/disclaimer.md; {{ticker}} (regex rules only) is any symbol of the ticker universe passed to check() (default: the app's stock universe), case-insensitive.",
+  "version": 2,
+  "rules": [
+    {
+      "id": "advice.banned_phrase",
+      "description": "Promotional phrases: promises of gains or of safety.",
+      "kind": "phrase",
+      "patterns": [
+        "guaranteed return",
+        "guaranteed returns",
+        "guaranteed profit",
+        "guaranteed profits",
+        "guaranteed gain",
+        "guaranteed gains",
+        "guaranteed money",
+        "guaranteed winner",
+        "guaranteed to rise",
+        "guaranteed to double",
+        "guaranteed to go up",
+        "guarantee returns",
+        "guarantee a return",
+        "guarantee profits",
+        "can't lose",
+        "cannot lose",
+        "can not lose",
+        "can't miss",
+        "cannot miss",
+        "can't go down",
+        "cannot go down",
+        "risk-free",
+        "zero risk",
+        "sure thing",
+        "sure bet",
+        "double your money",
+        "triple your money",
+        "free money",
+        "no-brainer",
+        "get rich",
+        "load up on",
+        "back up the truck"
+      ],
+      "allow": [
+        "risk-free rate",
+        "risk-free rates",
+        "risk-free interest rate",
+        "risk-free asset",
+        "risk-free yield",
+        "not a sure thing",
+        "no sure thing",
+        "never a sure thing",
+        "not guaranteed",
+        "no guaranteed",
+        "nothing is guaranteed",
+        "guaranteed by"
+      ],
+      "reported_action": "flag",
+      "action": "block"
+    },
+    {
+      "id": "advice.direct_instruction",
+      "description": "Direct buy/sell advice to the reader (\"you should buy\", \"I'd buy AAPL\", \"I recommend buying\", \"Buy AAPL now!\").",
+      "kind": "regex",
+      "patterns": [
+        "\\byou\\s+should\\s+(?:\\w+\\s+){0,2}?(?:buy|sell|invest|short)\\b",
+        "\\b(?:i|we)\\s*(?:['’]d|\\s+would)\\s+(?:\\w+\\s+){0,1}?(?:buy|sell|short)\\b",
+        "\\b(?:i|we)\\s+(?:strongly\\s+)?(?:recommend|advise|suggest)\\s+(?:buying|selling|shorting|dumping|trimming)\\b",
+        "(?:^|(?<=[.!?\\n]))[ \\t]*(?-i:Buy|Sell|Short|buy|sell|short)\\s+(?:{{ticker}}|\\$[A-Za-z]{1,5})\\b(?:[ \\t]+(?:now|today|immediately)\\b|[ \\t]*!)"
+      ],
+      "reported_action": "flag",
+      "action": "block"
+    },
+    {
+      "id": "advice.personal_holdings",
+      "description": "Personalized instructions tied to the reader's own holdings (\"sell your AAPL\", \"your portfolio should\", \"you need to buy\").",
+      "kind": "regex",
+      "patterns": [
+        "\\b(?:sell|buy|trim|dump|exit|short|reduce|increase|cut|add\\s+to|double\\s+down\\s+on)\\s+(?:all\\s+(?:of\\s+)?)?your\\s+(?:shares|position|positions|stake|stakes|holding|holdings|stock|stocks|{{ticker}}|\\$[A-Za-z]{1,5})\\b",
+        "\\byour\\s+(?:portfolio|holdings?|positions?|allocation)\\s+(?:should|must|needs?\\s+to|ought\\s+to|has\\s+to)\\b",
+        "\\byou\\s+(?:need\\s+to|have\\s+to|ought\\s+to|must)\\s+(?:buy|sell|trim|dump|exit|short|reduce|increase|invest)\\b",
+        "\\b(?:i|we)\\s+(?:recommend|advise|suggest)\\s+(?:that\\s+)?you\\s+(?:buy|sell|trim|dump|exit|short|reduce|increase|invest)\\b"
+      ],
+      "reported_action": "flag",
+      "action": "block"
+    },
+    {
+      "id": "advice.pressure_phrase",
+      "description": "Pressure to act quickly. Flagged, not blocked: \"act now\" is also ordinary wording (\"act now on the tax change\").",
+      "kind": "phrase",
+      "patterns": [
+        "act now"
+      ],
+      "action": "flag"
+    },
+    {
+      "id": "performance.needs_ledger",
+      "description": "Performance mentions must reference ledger data: allowed only when the text carries a {{ledger:...}} reference (rendered by T12). Flag, not block, until T12 exists.",
+      "kind": "regex",
+      "patterns": [
+        "\\b(?:returned|returning)\\s+(?:an?\\s+)?[+-]?\\d+(?:\\.\\d+)?\\s*%(?!\\s+(?:growth|revenue|margins?)\\b)",
+        "\\breturns?\\s+of\\s+[+-]?\\d+(?:\\.\\d+)?\\s*%",
+        "(?<![\\d.])[+-]?\\d+(?:\\.\\d+)?\\s*%\\s+(?:(?:annual|annualized|annualised|total|average|yearly)\\s+)?returns?\\b(?!\\s+on\\s+(?:equity|assets|capital|invested|investment))",
+        "\\b(?:beat|beats|beating|outperformed|outperforms|outperforming|underperformed|underperforms)\\s+(?:the\\s+)?(?:market|s&p(?:\\s*500)?|index|benchmark|spy)\\s+by\\b",
+        "(?<![\\d.])\\+\\d+(?:\\.\\d+)?\\s*%\\s*(?:a|per|each)\\s+year\\b",
+        "\\b(?:win|hit)\\s+rate\\s+of\\s+\\d+(?:\\.\\d+)?\\s*%"
+      ],
+      "unless": "\\{\\{ledger:[^{}\\s]+\\}\\}",
+      "action": "flag"
+    },
+    {
+      "id": "disclaimer.required",
+      "description": "The research disclaimer (config/disclaimer.md) must be present; if it is missing it is appended (inside <body> for HTML). The only rewrite.",
+      "kind": "requires",
+      "pattern": "{{disclaimer}}",
+      "action": "rewrite",
+      "replacement": "{{disclaimer}}"
+    }
+  ]
+}

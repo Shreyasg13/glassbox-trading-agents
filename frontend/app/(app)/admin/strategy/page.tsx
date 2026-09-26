@@ -15,6 +15,7 @@ import { FeedbackPanel } from "@/components/admin/strategy/FeedbackPanel";
 import { FlagsPanel } from "@/components/admin/strategy/FlagsPanel";
 import { SnapshotsPanel } from "@/components/admin/strategy/SnapshotsPanel";
 import { LedgerPanel } from "@/components/admin/strategy/LedgerPanel";
+import { CompliancePanel } from "@/components/admin/strategy/CompliancePanel";
 import { GateHealthPanel } from "@/components/admin/strategy/GateHealthPanel";
 
 const TABS = [
@@ -28,6 +29,7 @@ const TABS = [
   { id: "research", label: "Research", hint: "correlations · evidence gate" },
   { id: "snapshots", label: "Snapshots", hint: "point-in-time fetches" },
   { id: "ledger", label: "Ledger", hint: "append-only call chain" },
+  { id: "compliance", label: "Compliance", hint: "A7 filter log · rules" },
   { id: "gate-health", label: "Gate health", hint: "verification pass rate" },
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
@@ -114,6 +116,8 @@ export default function StrategyPage() {
         <SnapshotsPanel />
       ) : tab === "ledger" ? (
         <LedgerPanel />
+      ) : tab === "compliance" ? (
+        <CompliancePanel />
       ) : tab === "gate-health" ? (
         <GateHealthPanel />
       ) : q.isPending ? (
