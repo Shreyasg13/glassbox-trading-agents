@@ -1,7 +1,7 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8000/ws/signals";
 
-import type { LedgerRow, LedgerVerify } from "@/lib/types";
+import type { GateHealth, LedgerRow, LedgerVerify } from "@/lib/types";
 
 export function apiUrl(path: string): string {
   return `${API_URL}${path}`;
@@ -71,4 +71,12 @@ export async function fetchLedger(
 
 export async function verifyLedger(token: string | undefined): Promise<LedgerVerify> {
   return apiFetch<LedgerVerify>(`/api/admin/ledger/verify`, { token, method: "POST" });
+}
+
+// ---- Gate health API (S3 T14) ----
+
+/** Daily claim pass rate and top failing checks/metrics for committee runs dated from..to (YYYY-MM-DD, inclusive). */
+export async function fetchGateHealth(token: string | undefined, from: string, to: string): Promise<GateHealth> {
+  const params = new URLSearchParams({ from, to });
+  return apiFetch<GateHealth>(`/api/admin/gate-health?${params}`, { token });
 }

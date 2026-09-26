@@ -334,7 +334,7 @@ ADMIN   GET  /admin/flags      POST /admin/flags/{key}
 - [x] T11 Hash-chained ledger
 - [ ] T12 Forward-only scoring
 - [ ] T13 Weekly discrepancy report
-- [ ] T14 Gate health dashboard
+- [x] T14 Gate health dashboard
 - [ ] T15 Ablation harness
 
 **Dependencies:** T0 → everything. T3 → T4 → T5. T5 → T6, T7, T8. T10 → T4 (the full source-match check needs snapshots; until T10 lands, T4 can use a stub store). T11 → T12 → T15. T13 needs T4 and T8.
@@ -382,3 +382,4 @@ ADMIN   GET  /admin/flags      POST /admin/flags/{key}
 | 2026-09-26 | T3 | `claims` + `committee_narratives` (Alembic 0004): deterministic claims with exact JSON pointers, derived values from a fixed FORMULAS table checked by an `ast` allow-list (no eval); placeholder-only narrative behind `pipeline.claims` (default off); decisions proven identical. 3 rounds incl. a security fix | PR #26 `s3/T3-claims` |
 | 2026-09-26 | T4 | `verification_results` (Alembic 0005): pure A6 checks (traceability, point-in-time, staleness, price, risk, narrative) + runner wired after the claims step; badge counts fully verified claims; 40 gate tests. Finished by the reviewer after the worker hit the free-model daily limit | PR #27 `s3/T4-a6-gate` |
 | 2026-09-26 | T4b | Closed the A6 gaps against T4 (no migration): pure `check_snapshot_integrity` (payload re-hashed with `snapshot_store`'s canonical helper vs stored `payload_hash`) and `check_unit` (`EXPECTED_UNITS` for all 21 metrics `build_claims` emits; mismatch fails, unknown warns), both run by `verify_run` through `_safe` and stored like the others. Tolerance: traceability stays exact (values are copied); `RENDER_TOLERANCE_REL = 0.005` kept for T7. Latency test (25 claims) well under 200 ms. Config stays in `verification/config.py`, not the plan's `config.yaml` (typed, reviewed in code, no loader) | branch `s3/T4b-gate-gaps` |
+| 2026-09-26 | T14 | Gate health tab (read-only, no migration): pure aggregates in `verification/health.py` (daily claim pass rate via `gate.summarize`'s rule, runs ok, top five failing checks with most common reason, top five failing metrics joined to `claims`); `GET /api/admin/gate-health?from=&to=` (default 30 days, >366 days -> 400); inline-SVG 0–100% chart; 17 tests; 1 review round | branch `s3/T14-gate-health` |
