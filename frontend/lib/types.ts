@@ -555,6 +555,7 @@ export type ComplianceRule = {
   patterns?: string[];
   allow?: string[];
   unless?: string;
+  reported_action?: "flag";
   pattern?: string;
   replacement?: string;
 };

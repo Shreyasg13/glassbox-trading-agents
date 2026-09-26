@@ -153,6 +153,7 @@ export function CompliancePanel() {
                       <div>{r.description}</div>
                       <div className="mt-0.5 break-all font-mono text-[10px] text-t3">{rulePatterns(r)}</div>
                       {r.unless && <div className="mt-0.5 font-mono text-[10px] text-t3">unless: {r.unless}</div>}
+                      {r.reported_action && <div className="mt-0.5 text-[10px] text-t3">quoted or reported speech: {r.reported_action}</div>}
                     </td>
                   </tr>
                 ))}

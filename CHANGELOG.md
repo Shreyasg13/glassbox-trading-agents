@@ -10,10 +10,13 @@ into a dated release with a git tag.
 - **A7 compliance filter** (`app/compliance/filter.py`) (T8). Deterministic, no model calls. `check(text, channel=...)` is
   pure and returns the (possibly rewritten) text, the most severe action (`blocked` > `flagged` > `rewritten` > `pass`) and
   the rule hits; `record(result, run_id)` writes the hits to the new `compliance_events` table (Alembic 0006) and never
-  raises. Rules: banned advisory phrases ("you should buy", "guaranteed", "can't lose", "risk-free", ...) and personalized
-  instructions on the reader's holdings ("sell your AAPL", "your portfolio should") block; performance mentions ("returned
-  12%", "beat the market by") without a `{{ledger:...}}` reference are flagged; a missing disclaimer is appended (the only
-  rewrite). Neutral research wording ("the committee voted to buy", "the risk-free rate", "2 of your 5 stocks") passes.
+  raises. Rules: promotional phrases ("guaranteed returns", "can't lose", "risk-free", ...), direct advice ("you should
+  buy", "I'd buy AAPL", "Buy AAPL now!") and personalized instructions on the reader's holdings ("sell your AAPL" for real
+  tickers, "your portfolio should") block; the same words quoted or reported ("the CEO said ...") are flagged instead; "act
+  now" is flagged; performance mentions ("returned 12%", "beat the market by") without a `{{ledger:...}}` reference are
+  flagged; a missing disclaimer is appended (the only rewrite; inside `<body>` and escaped for HTML). Matching sees through
+  HTML tags and entities. Neutral research wording ("the committee voted to buy", "the risk-free rate", "guaranteed by the
+  US government", "reduce your US exposure", "2 of your 5 stocks") passes.
 - **Rules as data** in `backend/config/compliance_rules.json` (path overridable with `GLASSBOX_COMPLIANCE_RULES_PATH`). The
   build plan named `rules.yaml`; PyYAML is not installed and adding a dependency was out of scope, so the file is JSON.
 - **Admin → Compliance tab** and `GET /api/admin/compliance/events?from&to&action&limit`, `GET /api/admin/compliance/rules`

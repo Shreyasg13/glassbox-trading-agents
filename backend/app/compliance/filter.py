@@ -12,11 +12,17 @@ T8 builds the filter only. Wiring it into the output path (committee report, dig
 
 Actions: a rule says `block` | `flag` | `rewrite`; an event records what happened: `blocked` | `flagged` | `rewritten`.
 The result's action is the most severe of its events (blocked > flagged > rewritten > pass). The only rewrite is appending the
-missing disclaimer, which is deterministic and safe; a blocked result still carries that rewritten text, but a blocked text
-must not be published.
+missing disclaimer, which is deterministic and safe (inside <body>, escaped, for an HTML document); a blocked result still
+carries that rewritten text, but a blocked text must not be published.
+
+Matching runs on what a reader sees: HTML tags removed and entities decoded. A block rule may say `reported_action: flag`:
+a match inside quotation marks or after a reporting verb in the same sentence ("the CEO said ...") is someone else's words
+being reported, so it is flagged for a look instead of blocked. `{{ticker}}` in a regex is the ticker universe passed to
+check() (default: the app's stock universe), so "sell your AAPL" is caught but "reduce your US exposure" is not.
 """
 from __future__ import annotations
 
+import html
 import json
 import logging
 import os
@@ -24,8 +30,9 @@ import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Pattern, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Pattern, Tuple
 
 from .. import db, disclaimer
 from ..migrated_tables import compliance_events_table
@@ -37,6 +44,7 @@ RULE_ACTIONS = {"block": "blocked", "flag": "flagged", "rewrite": "rewritten"}  
 SEVERITY = {"pass": 0, "rewritten": 1, "flagged": 2, "blocked": 3}
 MATCHED_TEXT_MAX = 300
 DISCLAIMER_TOKEN = "{{disclaimer}}"
+TICKER_TOKEN = "{{ticker}}"
 
 _cache: Optional[Tuple["Rule", ...]] = None
 _cache_path: Optional[str] = None
@@ -49,11 +57,13 @@ class Rule:
     kind: str  # phrase | regex | requires
     action: str  # block | flag | rewrite
     patterns: Tuple[str, ...] = ()  # phrase / regex
-    allow: Tuple[str, ...] = ()  # phrase / regex: matches inside one of these phrases are harmless
+    allow: Tuple[str, ...] = ()  # phrase / regex: a match that overlaps one of these phrases is harmless
     unless: Optional[str] = None  # phrase / regex: the rule does not fire when this regex occurs anywhere in the text
+    reported_action: Optional[str] = None  # phrase / regex: the action for a quoted or reported match (someone else's words)
     pattern: Optional[str] = None  # requires
     replacement: Optional[str] = None  # requires + rewrite
     compiled: Tuple[Pattern[str], ...] = field(default=(), compare=False, repr=False)
+    templated: Tuple[str, ...] = field(default=(), compare=False, repr=False)  # regex patterns with {{ticker}}, compiled per universe
     compiled_allow: Tuple[Pattern[str], ...] = field(default=(), compare=False, repr=False)
     compiled_unless: Optional[Pattern[str]] = field(default=None, compare=False, repr=False)
 
@@ -70,6 +80,8 @@ class Rule:
                 out["allow"] = list(self.allow)
             if self.unless:
                 out["unless"] = self.unless
+            if self.reported_action:
+                out["reported_action"] = self.reported_action
         return out
 
 
@@ -149,13 +161,22 @@ def _parse_rule(raw: Any) -> Rule:
         unless = raw.get("unless")
         if unless is not None and (not isinstance(unless, str) or not unless.strip()):
             raise ValueError(f"compliance rule {rid!r}: unless must be a non-empty regex")
+        reported = raw.get("reported_action")
+        if reported is not None and reported != "flag":
+            raise ValueError(f"compliance rule {rid!r}: reported_action may only be 'flag'")
+        templated: Tuple[str, ...] = ()
         if kind == "phrase":
+            if any(TICKER_TOKEN in p for p in patterns):
+                raise ValueError(f"compliance rule {rid!r}: {TICKER_TOKEN} is only allowed in regex rules")
             compiled = tuple(_phrase_regex(p) for p in patterns)
         else:
-            compiled = tuple(re.compile(p, re.IGNORECASE) for p in patterns)
+            templated = tuple(p for p in patterns if TICKER_TOKEN in p)
+            compiled = tuple(re.compile(p, re.IGNORECASE) for p in patterns if TICKER_TOKEN not in p)
+            for p in templated:  # fail on load, not on the first check
+                re.compile(p.replace(TICKER_TOKEN, "(?:AAPL)"), re.IGNORECASE)
         return Rule(
             id=rid, description=description, kind=kind, action=action, patterns=patterns, allow=allow, unless=unless,
-            compiled=compiled,
+            reported_action=reported, compiled=compiled, templated=templated,
             compiled_allow=tuple(_phrase_regex(a) for a in allow),
             compiled_unless=re.compile(unless, re.IGNORECASE) if unless else None,
         )
@@ -203,47 +224,114 @@ def _norm(s: str) -> str:
     return " ".join(s.split()).casefold()
 
 
-def _event(channel: str, rule: Rule, matched: str) -> Dict[str, Any]:
-    return {"channel": channel, "rule_id": rule.id, "matched_text": matched[:MATCHED_TEXT_MAX], "action": RULE_ACTIONS[rule.action]}
+# A tag starts with a letter, "/" or "!" right after "<", so "RSI < 30 and > 70" is not mistaken for one. [^<>]* keeps it linear.
+_TAG = re.compile(r"<(?:/?[A-Za-z]|!)[^<>]*>")
+_LOOKS_HTML = re.compile(r"<html|<body", re.IGNORECASE)
 
 
-def _matches(rule: Rule, text: str) -> List[str]:
-    """Distinct matched snippets (first occurrence wins, case-insensitive) outside the rule's allow phrases."""
+def _plain(s: str) -> str:
+    """What a reader sees: HTML tags become spaces and entities are decoded (`you <b>should</b>&nbsp;buy` -> `you  should  buy`).
+    Every rule matches against this form."""
+    return html.unescape(_TAG.sub(" ", s))
+
+
+# Someone else's words being reported: inside quotation marks, or after a reporting verb earlier in the same sentence.
+_QUOTED = re.compile(
+    r"\"[^\"\n]{0,500}\"|“[^”\n]{0,500}”|‘[^’\n]{0,500}’|(?<!\w)'(?:[^'\n]|'(?=\w)){0,500}'(?!\w)"
+)
+_REPORTING = re.compile(
+    r"\b(?:said|says|say|told|tells|stated|states|wrote|writes|argued|argues|claimed|claims|according\s+to)\b", re.IGNORECASE
+)
+_SENTENCE_BREAK = re.compile(r"[.!?\n]")
+_REPORT_LOOKBACK = 300
+
+
+def _is_reported(text: str, start: int, quoted: List[Tuple[int, int]]) -> bool:
+    if any(s <= start < e for s, e in quoted):
+        return True
+    window = text[max(0, start - _REPORT_LOOKBACK):start]
+    breaks = [m.end() for m in _SENTENCE_BREAK.finditer(window)]
+    return bool(_REPORTING.search(window[breaks[-1] if breaks else 0:]))
+
+
+def _default_tickers() -> frozenset:
+    from .. import data_source  # the app's stock universe
+
+    return frozenset(data_source.STOCK_INFO)
+
+
+@lru_cache(maxsize=64)
+def _with_tickers(pattern: str, tickers: frozenset) -> Pattern[str]:
+    """Compile a {{ticker}} pattern for one ticker universe (cached). An empty universe matches no ticker."""
+    alt = "|".join(re.escape(t) for t in sorted(tickers, key=lambda t: (-len(t), t))) or r"(?!)"
+    return re.compile(pattern.replace(TICKER_TOKEN, f"(?:{alt})"), re.IGNORECASE)
+
+
+def _event(channel: str, rule: Rule, matched: str, action: Optional[str] = None) -> Dict[str, Any]:
+    return {"channel": channel, "rule_id": rule.id, "matched_text": matched[:MATCHED_TEXT_MAX],
+            "action": RULE_ACTIONS[action or rule.action]}
+
+
+def _matches(rule: Rule, text: str, tickers: frozenset, quoted: List[Tuple[int, int]]) -> List[Tuple[str, str]]:
+    """Distinct (snippet, rule action) pairs in text order, skipping any match that overlaps one of the rule's allow phrases.
+    A reported match (quoted, or after "said") gets the rule's reported_action when it has one."""
     if rule.compiled_unless is not None and rule.compiled_unless.search(text):
         return []
     allowed = [(m.start(), m.end()) for rx in rule.compiled_allow for m in rx.finditer(text)]
-    found: List[Tuple[int, str]] = []
+    regexes = list(rule.compiled) + [_with_tickers(p, tickers) for p in rule.templated]
+    found: List[Tuple[int, str, str]] = []
     seen = set()
-    for rx in rule.compiled:
+    for rx in regexes:
         for m in rx.finditer(text):
-            if any(s <= m.start() and m.end() <= e for s, e in allowed):
+            if m.end() == m.start() or any(s < m.end() and m.start() < e for s, e in allowed):
                 continue
-            key = _norm(m.group(0))
+            action = rule.action
+            if rule.reported_action and _is_reported(text, m.start(), quoted):
+                action = rule.reported_action
+            snippet = m.group(0).strip()
+            key = (_norm(snippet), action)
             if key in seen:
                 continue
             seen.add(key)
-            found.append((m.start(), m.group(0)))
-    return [snippet for _, snippet in sorted(found)]
+            found.append((m.start(), snippet, action))
+    return [(snippet, action) for _, snippet, action in sorted(found)]
 
 
-def check(text: str, *, channel: str) -> FilterResult:
-    """Run every rule over `text` for one output channel. Pure: no database, no network, no clock."""
+def _append(out: str, addition: str) -> str:
+    """Append the disclaimer: as an escaped <p> before </body> (or </html>) for an HTML document, else as a new paragraph."""
+    if _LOOKS_HTML.search(out):
+        para = f"<p>{html.escape(addition)}</p>"
+        lower = out.lower()
+        idx = lower.rfind("</body>")
+        if idx < 0:
+            idx = lower.rfind("</html>")
+        return out[:idx] + para + out[idx:] if idx >= 0 else out.rstrip() + para
+    return f"{out.rstrip()}\n\n{addition}" if out.strip() else addition
+
+
+def check(text: str, *, channel: str, tickers: Optional[Iterable[str]] = None) -> FilterResult:
+    """Run every rule over `text` for one output channel. Pure: no database, no network, no clock.
+
+    `tickers` is the symbol universe for {{ticker}} patterns ("sell your AAPL"); default: the app's stock universe. A caller
+    that knows the reader's holdings should pass them too. Any `$TICKER` is recognised regardless."""
     if not isinstance(channel, str) or not channel.strip():
         raise ValueError("channel is required")
+    universe = frozenset(t.strip().upper() for t in tickers if t and t.strip()) if tickers is not None else _default_tickers()
     source = text or ""
+    plain = _plain(source)
+    quoted = [(m.start(), m.end()) for m in _QUOTED.finditer(plain)]
     out = source
     events: List[Dict[str, Any]] = []
     for rule in load_rules():
         if rule.kind == "requires":
-            if _norm(_resolve(rule.pattern or "")) in _norm(source):
+            if _norm(_resolve(rule.pattern or "")) in _norm(plain):
                 continue
             events.append(_event(channel, rule, ""))
             if rule.action == "rewrite":
-                addition = _resolve(rule.replacement or "")
-                out = f"{out.rstrip()}\n\n{addition}" if out.strip() else addition
+                out = _append(out, _resolve(rule.replacement or ""))
             continue
-        for snippet in _matches(rule, source):
-            events.append(_event(channel, rule, snippet))
+        for snippet, action in _matches(rule, plain, universe, quoted):
+            events.append(_event(channel, rule, snippet, action))
     action = max((e["action"] for e in events), key=SEVERITY.__getitem__, default="pass")
     return FilterResult(text=out, action=action, events=events)
 
