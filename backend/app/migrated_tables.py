@@ -101,6 +101,20 @@ verification_results_table = Table(
     Index("ix_verification_results_run_id", "run_id"),
 )
 
+compliance_events_table = Table(
+    "compliance_events",
+    migrated_metadata,
+    Column("id", String, primary_key=True),
+    Column("run_id", String, nullable=True),  # null for outputs that are not committee runs (digests, assistant answers)
+    Column("channel", String, nullable=False),  # committee_report | user_digest | assistant | ...
+    Column("rule_id", String, nullable=False),
+    Column("matched_text", String(300), nullable=False, default=""),
+    Column("action", String, nullable=False),  # blocked | rewritten | flagged
+    Column("created_at", String, nullable=False),
+    Index("ix_compliance_events_created_at", "created_at"),
+    Index("ix_compliance_events_run_id", "run_id"),
+)
+
 
 def include_object(obj, name, type_, reflected, compare_to):
     """Autogenerate fence (used by migrations/env.py): it may only see the migration-managed tables above, so it can never

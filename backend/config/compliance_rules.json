@@ -1,0 +1,81 @@
+{
+  "_comment": "A7 compliance rules (S3 T8). Data, not code: app/compliance/filter.py reads this file once. The build plan says rules.yaml; PyYAML is not installed, so JSON. Matching is case-insensitive. kind: phrase (literal phrases, word boundaries, any whitespace between words, straight or curly apostrophes, hyphen or space in hyphenated words) | regex | requires (text must contain `pattern`). action: block | flag | rewrite (rewrite only for requires: appends `replacement`). allow: phrases that make a match inside them harmless. unless: a regex; when it occurs anywhere in the text the rule does not fire. The token {{disclaimer}} stands for the text of config/disclaimer.md.",
+  "version": 1,
+  "rules": [
+    {
+      "id": "advice.banned_phrase",
+      "description": "Promotional or advisory phrases: direct buy/sell advice, promises of gains, pressure to act.",
+      "kind": "phrase",
+      "patterns": [
+        "you should buy",
+        "you should sell",
+        "you should invest",
+        "you should short",
+        "guaranteed",
+        "guarantee returns",
+        "guarantee a return",
+        "guarantee profits",
+        "can't lose",
+        "cannot lose",
+        "can not lose",
+        "can't miss",
+        "cannot miss",
+        "risk-free",
+        "sure thing",
+        "sure bet",
+        "act now",
+        "double your money",
+        "triple your money",
+        "no-brainer",
+        "get rich"
+      ],
+      "allow": [
+        "risk-free rate",
+        "risk-free rates",
+        "risk-free interest rate",
+        "risk-free asset",
+        "risk-free yield",
+        "not guaranteed",
+        "nothing is guaranteed",
+        "government-guaranteed",
+        "FDIC-guaranteed"
+      ],
+      "action": "block"
+    },
+    {
+      "id": "advice.personal_holdings",
+      "description": "Personalized instructions tied to the reader's own holdings (\"sell your AAPL\", \"your portfolio should\", \"you need to buy\").",
+      "kind": "regex",
+      "patterns": [
+        "\\b(?:sell|buy|trim|dump|exit|short|reduce|increase|cut|add\\s+to|double\\s+down\\s+on)\\s+(?:all\\s+(?:of\\s+)?)?your\\s+(?:shares|position|positions|stake|stakes|holding|holdings|stock|stocks|(?-i:\\$?[A-Z]{1,5}))\\b",
+        "\\byour\\s+(?:portfolio|holdings?|positions?|allocation)\\s+(?:should|must|needs?\\s+to|ought\\s+to|has\\s+to)\\b",
+        "\\byou\\s+(?:need\\s+to|have\\s+to|ought\\s+to|must)\\s+(?:buy|sell|trim|dump|exit|short|reduce|increase|invest)\\b",
+        "\\b(?:i|we)\\s+(?:recommend|advise|suggest)\\s+(?:that\\s+)?you\\s+(?:buy|sell|trim|dump|exit|short|reduce|increase|invest)\\b"
+      ],
+      "action": "block"
+    },
+    {
+      "id": "performance.needs_ledger",
+      "description": "Performance mentions must reference ledger data: allowed only when the text carries a {{ledger:...}} reference (rendered by T12). Flag, not block, until T12 exists.",
+      "kind": "regex",
+      "patterns": [
+        "\\b(?:returned|returning)\\s+(?:an?\\s+)?[+-]?\\d+(?:\\.\\d+)?\\s*%",
+        "\\breturns?\\s+of\\s+[+-]?\\d+(?:\\.\\d+)?\\s*%",
+        "[+-]?\\d+(?:\\.\\d+)?\\s*%\\s+(?:(?:annual|annualized|annualised|total|average|yearly)\\s+)?returns?\\b(?!\\s+on\\s+(?:equity|assets|capital|invested|investment))",
+        "\\b(?:beat|beats|beating|outperformed|outperforms|outperforming|underperformed|underperforms)\\s+(?:the\\s+)?(?:market|s&p(?:\\s*500)?|index|benchmark|spy)\\s+by\\b",
+        "\\+\\d+(?:\\.\\d+)?\\s*%\\s*(?:a|per|each)\\s+year\\b",
+        "\\b(?:win|hit)\\s+rate\\s+of\\s+\\d+(?:\\.\\d+)?\\s*%"
+      ],
+      "unless": "\\{\\{ledger:[^{}\\s]+\\}\\}",
+      "action": "flag"
+    },
+    {
+      "id": "disclaimer.required",
+      "description": "The research disclaimer (config/disclaimer.md) must be present; if it is missing it is appended. The only rewrite.",
+      "kind": "requires",
+      "pattern": "{{disclaimer}}",
+      "action": "rewrite",
+      "replacement": "{{disclaimer}}"
+    }
+  ]
+}
