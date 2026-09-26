@@ -4,7 +4,17 @@ All notable changes to GlassBox. Newest first. Each release lists what was **add
 but switched off**, and **known limitations**. Every S3 task PR adds its lines under "Unreleased"; a deploy turns "Unreleased"
 into a dated release with a git tag.
 
-## [Unreleased] — S3 "Trustworthy MVP", part 1 (T0–T4, T9, T10, T11)
+## [Unreleased]
+
+### Fixed
+- The A6 gate crashed on monthly data: BLS snapshots describe a month (`2026-08`), which the staleness check could not read,
+  so no gate results were stored for any run. A month now counts as its last day. Found by the first production check.
+- The gate can no longer be stopped by one odd value: a check that meets data it cannot handle records a failed check with
+  the reason (that number is then not counted as verified) and the rest of the run is still recorded.
+- Re-running the claims step for a saved decision no longer duplicates its claims: the claims table is append-only, so the
+  first set stored for a run is kept and reused. Narrative rows for a run are replaced instead of failing on a duplicate.
+
+## [s3-part1] — 2026-09-26 — S3 "Trustworthy MVP", part 1 (T0–T4, T9, T10, T11)
 
 The goal of S3: nothing reaches a user, is scored as a track record, or appears in marketing unless it passed a verification gate
 and a compliance filter and was written to an append-only ledger. This part builds the foundations: a point-in-time data store,

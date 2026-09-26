@@ -619,3 +619,17 @@ def test_check_claim_pe_with_and_without_prices(tmp_path, monkeypatch):
 
 # Import select for the test
 from sqlalchemy import select
+
+
+def test_rerunning_claims_for_a_run_reuses_them_instead_of_duplicating():
+    """Found in production 2026-09-26: the claims table is append-only, so re-running the step for a saved decision must reuse its claims, not add duplicates."""
+    from sqlalchemy import func, select
+
+    book, d = make_book()
+    run_id = f"{d}:AAPL"
+    run_time = datetime.now(timezone.utc).isoformat()
+    first = claims.build_claims(run_id, "AAPL", d, book, run_time)
+    claims.build_claims(run_id, "AAPL", d, book, run_time)
+    with db.engine.connect() as c:
+        n = c.execute(select(func.count()).select_from(claims_table).where(claims_table.c.run_id == run_id)).scalar()
+    assert first and n == len(first)

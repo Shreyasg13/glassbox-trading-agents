@@ -17,6 +17,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from sqlalchemy import select
+
 from . import db, free_data, risk, snapshot_store
 from .migrated_tables import claims_table
 
@@ -710,8 +712,13 @@ def build_claims(
         )
 
     # Store claims
-    if claims:
-        with db.engine.begin() as conn:
+    # The claims table is append-only (database triggers, migration 0004): the first set stored for a run is its permanent
+    # record. Re-running the step for a run that already has claims returns those instead of adding duplicates.
+    with db.engine.begin() as conn:
+        existing = conn.execute(select(claims_table).where(claims_table.c.run_id == run_id)).mappings().all()
+        if existing:
+            return [dict(r) for r in existing]
+        if claims:
             conn.execute(claims_table.insert(), claims)
 
     return claims

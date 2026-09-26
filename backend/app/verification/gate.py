@@ -57,7 +57,14 @@ def _normalize_ts(s: str) -> datetime:
 
 
 def _iso_to_date(s: str) -> date:
-    """Parse ISO date string (YYYY-MM-DD) to date."""
+    """Parse the date a snapshot describes. Accepts YYYY-MM-DD (or a longer ISO timestamp) and YYYY-MM: monthly sources
+    such as BLS report a month, which counts as its LAST day (the data describes the whole month). Raises ValueError for
+    anything else; verify_run turns that into a failed check instead of a crash."""
+    s = str(s).strip()
+    if len(s) == 7 and s[4] == "-":  # YYYY-MM
+        y, m = int(s[:4]), int(s[5:7])
+        first_of_next = date(y + (m == 12), m % 12 + 1, 1)
+        return first_of_next - timedelta(days=1)
     return date.fromisoformat(s[:10])
 
 
@@ -420,6 +427,18 @@ def check_narrative(narrative_row: Optional[Dict[str, Any]], claims_for_run: Lis
     )
 
 
+def _safe(check, *args) -> Result:
+    """Run one check. A check that meets data it cannot handle records a FAIL with the reason (the claim is then not
+    counted as verified) instead of raising: one odd value must never stop the gate from recording the rest."""
+    try:
+        return check(*args)
+    except Exception as exc:  # noqa: BLE001
+        claim = args[0] if args and isinstance(args[0], dict) else {}
+        name = getattr(check, "__name__", "check").replace("check_", "")
+        return Result(check_type=name, status="fail", claim_id=claim.get("id"), expected=None, observed=None,
+                      reason=f"check error: {type(exc).__name__}: {exc}"[:300])
+
+
 def verify_run(inputs: Dict[str, Any]) -> List[Result]:
     """Run all verification checks for a single committee run.
 
@@ -452,25 +471,28 @@ def verify_run(inputs: Dict[str, Any]) -> List[Result]:
         payload = snap_info[1] if snap_info else None
 
         # Traceability
-        results.append(check_traceability(claim, payload, prices))
+        results.append(_safe(check_traceability, claim, payload, prices))
 
         # Point in time (only for snapshot sources)
         if claim.get("source") not in ("risk", "pricebook") and snapshot_meta:
-            results.append(check_point_in_time(claim, snapshot_meta, run_time))
+            results.append(_safe(check_point_in_time, claim, snapshot_meta, run_time))
 
         # Staleness (only for snapshot sources with as_of)
         if claim.get("source") not in ("risk", "pricebook") and snapshot_meta:
-            results.append(check_staleness(claim, snapshot_meta, run_date, windows))
+            results.append(_safe(check_staleness, claim, snapshot_meta, run_date, windows))
 
         # Price (only for pricebook source)
         if claim.get("source") == "pricebook":
-            results.append(check_price(claim, prices))
+            results.append(_safe(check_price, claim, prices))
 
     # Risk checks (one per risk claim)
-    results.extend(check_risk(claims_list, recomputed_risk))
+    try:
+        results.extend(check_risk(claims_list, recomputed_risk))
+    except Exception as exc:  # noqa: BLE001
+        results.append(Result(check_type="risk", status="fail", claim_id=None, expected=None, observed=None, reason=f"check error: {type(exc).__name__}: {exc}"[:300]))
 
     # Narrative check (once per run)
-    results.append(check_narrative(narrative_row, claims_list))
+    results.append(_safe(check_narrative, narrative_row, claims_list))
 
     return results
 
