@@ -6,6 +6,14 @@ into a dated release with a git tag.
 
 ## [Unreleased]
 
+### Added
+- **Gate health dashboard** (T14). Admin → Strategy → Gate health: for any date range (default the last 30 days, at most
+  366) it shows the share of claims that passed every A6 check per day (a staleness warning alone does not disqualify, the
+  same rule as the badge), how many runs had no failed check, the five checks that fail most often with their most common
+  reason, and the five claim metrics that fail most often. Ask and challenger runs are not counted. Read-only:
+  `GET /api/admin/gate-health?from=&to=` (admin only) aggregates the existing `verification_results` and `claims` tables;
+  no migration.
+
 ### Changed
 - Removed the "For Advisors" section and its nav link. It pitched paid advisor features (white-label, multi-client,
   compliance export) and showed two testimonials attributed to named professionals that were not real customers.

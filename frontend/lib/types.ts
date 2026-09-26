@@ -532,3 +532,28 @@ export type LedgerVerify = {
   first_bad_seq: number | null;
   reason: string;
 };
+
+// ---- Gate health (admin, S3 T14) ----
+
+export type GateHealthDay = {
+  date: string;
+  claims_checked: number;
+  claims_verified: number;
+  /** claims_verified / claims_checked (0–1); null when no claim was checked that day. */
+  pass_rate: number | null;
+  runs_checked: number;
+  runs_ok: number;
+};
+
+export type GateHealthCheck = { check_type: string; failures: number; top_reason: string | null };
+
+export type GateHealthMetric = { metric: string; failures: number; claims: number };
+
+export type GateHealth = {
+  from: string;
+  to: string;
+  days: GateHealthDay[];
+  totals: Omit<GateHealthDay, "date">;
+  top_checks: GateHealthCheck[];
+  top_metrics: GateHealthMetric[];
+};
