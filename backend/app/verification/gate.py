@@ -437,6 +437,9 @@ def check_snapshot_integrity(claim: Dict[str, Any], snapshot_meta: Dict[str, Any
 
     Recomputes sha256 over the same canonical JSON snapshot_store hashed when it stored the snapshot. A payload changed
     after it was stored (tampered or corrupted) fails; so does a snapshot with no stored hash.
+
+    Limit: the hash lives in the same row, so this detects corruption and a payload edited on its own, not someone who
+    rewrites both the payload and its hash. The tamper-evident record is the hash-chained ledger (T11).
     """
     claim_id = claim.get("id")
     stored = snapshot_meta.get("payload_hash")
@@ -464,7 +467,8 @@ def check_snapshot_integrity(claim: Dict[str, Any], snapshot_meta: Dict[str, Any
 
 def check_unit(claim: Dict[str, Any]) -> Result:
     """The claim's unit is the one expected for its metric (config.EXPECTED_UNITS), so a percentage and a ratio are never
-    compared as if they were the same kind of number. Different unit -> fail; metric not in the table -> warn."""
+    compared as if they were the same kind of number. Different unit -> fail; metric not in the table -> fail too
+    (reviewer decision: a number the gate does not know must not let a run stay "ok" once T5 publishes on `ok`)."""
     claim_id = claim.get("id")
     metric = claim.get("metric")
     unit = claim.get("unit")
@@ -473,7 +477,7 @@ def check_unit(claim: Dict[str, Any]) -> Result:
     if expected is None:
         return Result(
             check_type="unit",
-            status="warn",
+            status="fail",
             claim_id=claim_id,
             expected=None,
             observed=str(unit),

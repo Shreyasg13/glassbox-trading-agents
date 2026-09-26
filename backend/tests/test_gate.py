@@ -4,6 +4,10 @@ Pure-function tests for every check, pass and fail sides; runner tests on temp D
 """
 from __future__ import annotations
 
+import ast
+import json
+import time
+from pathlib import Path
 import pytest
 from datetime import datetime, timezone, timedelta
 
@@ -636,10 +640,6 @@ def test_one_unparseable_value_fails_that_check_but_never_stops_the_gate():
 
 
 # --- S3 T4b: snapshot integrity, units, tolerance, latency (the A6 gaps against the build plan) ---
-import ast
-import json
-import time
-from pathlib import Path
 
 from app.verification import config as vconfig
 
@@ -721,9 +721,9 @@ def test_unit_check_fails_on_a_mismatch(metric, unit, expected):
     assert r.status == "fail" and r.reason == f"unit {unit}, expected {expected}"
 
 
-def test_unit_check_warns_for_a_metric_with_no_expected_unit():
+def test_unit_check_fails_for_a_metric_with_no_expected_unit():
     r = gate.check_unit({"id": "u", "metric": "brand_new_metric", "unit": "pct"})
-    assert r.status == "warn" and r.reason == "no expected unit for metric brand_new_metric"
+    assert r.status == "fail" and r.reason == "no expected unit for metric brand_new_metric"
 
 
 def test_a_percentage_labelled_as_a_ratio_fails_through_verify_run_and_is_not_counted():
@@ -738,12 +738,13 @@ def test_a_percentage_labelled_as_a_ratio_fails_through_verify_run_and_is_not_co
     assert s["verified_claims"] == 1 and s["ok"] is False
 
 
-def test_an_unknown_metric_warns_through_verify_run_and_is_not_counted():
+def test_an_unknown_metric_fails_through_verify_run_and_is_not_counted():
     odd = {"id": "x1", "metric": "brand_new_metric", "source": "risk", "value": 1.0, "unit": "pct"}
     results = gate.verify_run(_inputs([odd], {}, recomputed_risk={"score": 1.0}))
     unit = [r for r in results if r.check_type == "unit"]
-    assert [r.status for r in unit] == ["warn"]
-    assert gate.summarize(results)["verified_claims"] == 0  # a unit nobody vouched for is not "verified"
+    assert [r.status for r in unit] == ["fail"]
+    s = gate.summarize(results)
+    assert s["verified_claims"] == 0 and s["ok"] is False  # an unknown number can no longer leave the run "ok"  # a unit nobody vouched for is not "verified"
 
 
 def _metric_units_in_claims_source():

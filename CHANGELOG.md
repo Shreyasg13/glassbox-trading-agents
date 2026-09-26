@@ -11,7 +11,7 @@ into a dated release with a git tag.
   payload must still hash to the `payload_hash` stored with it (same canonical JSON as the snapshot store); a changed payload
   or a missing hash fails, and that number is not counted as verified. **Units**: each claim's unit must be the one expected
   for its metric (`EXPECTED_UNITS` in `verification/config.py`, covering all 21 metrics claims can emit), so a percentage and
-  a ratio are never compared as the same thing; a mismatch fails, an unknown metric warns (and is not counted as verified).
+  a ratio are never compared as the same thing; a mismatch fails, and so does a metric with no expected unit.
 - The gate's tolerance is now written down: claim values are copied from the source, so traceability stays exact (stricter
   than the plan's 0.5%). `RENDER_TOLERANCE_REL = 0.005` is recorded for numbers as rendered to users (T7; not used yet).
 - A latency test: a realistic run (20 snapshot claims, a close, risk, a narrative) goes through the gate in well under the
