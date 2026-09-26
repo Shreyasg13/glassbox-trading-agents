@@ -1,7 +1,7 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8000/ws/signals";
 
-import type { ComplianceAction, ComplianceEvent, ComplianceRule, LedgerRow, LedgerVerify } from "@/lib/types";
+import type { ComplianceAction, ComplianceEvent, ComplianceRule, GateHealth, LedgerRow, LedgerVerify } from "@/lib/types";
 
 export function apiUrl(path: string): string {
   return `${API_URL}${path}`;
@@ -88,4 +88,12 @@ export async function fetchComplianceEvents(
 
 export async function fetchComplianceRules(token: string | undefined): Promise<ComplianceRule[]> {
   return apiFetch<ComplianceRule[]>(`/api/admin/compliance/rules`, { token });
+}
+
+// ---- Gate health API (S3 T14) ----
+
+/** Daily claim pass rate and top failing checks/metrics for committee runs dated from..to (YYYY-MM-DD, inclusive). */
+export async function fetchGateHealth(token: string | undefined, from: string, to: string): Promise<GateHealth> {
+  const params = new URLSearchParams({ from, to });
+  return apiFetch<GateHealth>(`/api/admin/gate-health?${params}`, { token });
 }

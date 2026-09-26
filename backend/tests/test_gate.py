@@ -4,10 +4,14 @@ Pure-function tests for every check, pass and fail sides; runner tests on temp D
 """
 from __future__ import annotations
 
+import ast
+import json
+import time
+from pathlib import Path
 import pytest
 from datetime import datetime, timezone, timedelta
 
-from app import db, verification
+from app import db, snapshot_store, verification
 from app.verification import gate
 
 
@@ -515,7 +519,7 @@ NM_SPAN = "derived: net_income / revenue | net_income=/concepts/net_income/serie
 
 
 def nm_claim(**kw):
-    c = {"id": "nm1", "metric": "net_margin", "source": "sec_facts", "value": 0.1, "unit": "ratio",
+    c = {"id": "nm1", "metric": "net_margin", "source": "sec_facts", "value": 0.1, "unit": "pct",
          "source_snapshot_id": "s1", "source_path": "/concepts/net_income/series/0/val", "text_span": NM_SPAN}
     c.update(kw)
     return c
@@ -536,7 +540,8 @@ def test_traceability_through_the_gate(claim, want, capfd):
 
 def test_verify_run_counts_a_wrong_value_as_not_verified():
     inputs = {"claims": [nm_claim(), nm_claim(id="nm2", value=0.3)],
-              "snapshots_by_claim_id": {cid: ({"fetched_at": "2026-09-18T10:00:00+00:00", "as_of": "2026-09-01"}, NM_PAYLOAD) for cid in ("nm1", "nm2")},
+              "snapshots_by_claim_id": {cid: ({"fetched_at": "2026-09-18T10:00:00+00:00", "as_of": "2026-09-01",
+                                               "payload_hash": snapshot_store._payload_hash(NM_PAYLOAD)}, NM_PAYLOAD) for cid in ("nm1", "nm2")},
               "run_time": "2026-09-18T12:00:00+00:00", "run_date": "2026-09-18", "prices": {}, "recomputed_risk": {}, "narrative_row": None}
     summary = gate.summarize(gate.verify_run(inputs))
     assert summary["verified_claims"] == 1 and summary["total_claims"] == 2 and summary["ok"] is False
@@ -618,7 +623,7 @@ def test_staleness_of_a_monthly_bls_snapshot_is_measured_from_month_end():
 
 
 def test_one_unparseable_value_fails_that_check_but_never_stops_the_gate():
-    good = {"id": "p1", "metric": "close", "source": "pricebook", "value": 100.0, "period": "2026-09-18"}
+    good = {"id": "p1", "metric": "close", "source": "pricebook", "value": 100.0, "unit": "USD", "period": "2026-09-18"}
     odd = {"id": "b1", "metric": "unemployment", "source": "bls", "value": 4.3, "source_path": "/0/value"}
     inputs = {
         "claims": [odd, good],
@@ -632,3 +637,272 @@ def test_one_unparseable_value_fails_that_check_but_never_stops_the_gate():
     assert any(r.claim_id == "p1" and r.check_type == "price" and r.status == "pass" for r in results)
     s = gate.summarize(results)
     assert s["ok"] is False and s["verified_claims"] == 1  # the odd claim is not counted as verified; the good one is
+
+
+# --- S3 T4b: snapshot integrity, units, tolerance, latency (the A6 gaps against the build plan) ---
+
+from app.verification import config as vconfig
+
+
+def _meta(payload, **kw):
+    m = {"fetched_at": "2026-09-18T10:00:00+00:00", "as_of": "2026-09-01", "payload_hash": snapshot_store._payload_hash(payload)}
+    m.update(kw)
+    return m
+
+
+def _inputs(claims_list, snapshots, **kw):
+    inp = {"claims": claims_list, "snapshots_by_claim_id": snapshots, "run_time": "2026-09-18T12:00:00+00:00",
+           "run_date": "2026-09-18", "prices": {}, "recomputed_risk": {}, "narrative_row": None}
+    inp.update(kw)
+    return inp
+
+
+def test_snapshot_integrity_passes_for_an_untouched_payload():
+    r = gate.check_snapshot_integrity(nm_claim(), _meta(NM_PAYLOAD), NM_PAYLOAD)
+    assert r.check_type == "snapshot_integrity" and r.status == "pass"
+    assert r.observed == r.expected == snapshot_store._payload_hash(NM_PAYLOAD)
+
+
+def test_snapshot_integrity_uses_the_store_canonical_form():
+    # Key order and whitespace of the stored text do not matter: the hash is over snapshot_store's canonical JSON.
+    reordered = json.loads(json.dumps({"concepts": {"revenue": {"series": [{"val": 100.0}]}, "net_income": {"series": [{"val": 10.0}]}}}, indent=2))
+    assert gate.check_snapshot_integrity(nm_claim(), _meta(NM_PAYLOAD), reordered).status == "pass"
+
+
+def test_snapshot_integrity_fails_for_a_tampered_payload():
+    meta = _meta(NM_PAYLOAD)  # hashed first ...
+    tampered = json.loads(json.dumps(NM_PAYLOAD))
+    tampered["concepts"]["revenue"]["series"][0]["val"] = 101.0  # ... then one value changed
+    r = gate.check_snapshot_integrity(nm_claim(), meta, tampered)
+    assert r.status == "fail" and r.reason == "payload does not match its stored hash"
+
+
+@pytest.mark.parametrize("meta", [{"fetched_at": "2026-09-18T10:00:00+00:00", "as_of": "2026-09-01"},
+                                  _meta(NM_PAYLOAD, payload_hash=None), _meta(NM_PAYLOAD, payload_hash="")],
+                         ids=["absent", "none", "empty"])
+def test_snapshot_integrity_fails_without_a_stored_hash(meta):
+    r = gate.check_snapshot_integrity(nm_claim(), meta, NM_PAYLOAD)
+    assert r.status == "fail" and r.reason == "snapshot metadata missing payload_hash"
+
+
+def test_a_tampered_payload_fails_through_verify_run_and_is_not_counted_in_the_badge():
+    # The tampered value is one the claim does NOT read, so traceability still passes: only the integrity check catches it.
+    tampered = json.loads(json.dumps(NM_PAYLOAD))
+    tampered["concepts"]["extra"] = {"series": [{"val": 1.0}]}
+    inputs = _inputs([nm_claim(), nm_claim(id="nm2")],
+                     {"nm1": (_meta(NM_PAYLOAD), NM_PAYLOAD), "nm2": (_meta(NM_PAYLOAD), tampered)})
+    results = gate.verify_run(inputs)
+    by = {(r.claim_id, r.check_type): r for r in results}
+    assert by[("nm2", "traceability")].status == "pass"
+    assert by[("nm2", "snapshot_integrity")].status == "fail"
+    assert by[("nm1", "snapshot_integrity")].status == "pass"
+    s = gate.summarize(results)
+    assert s["verified_claims"] == 1 and s["total_claims"] == 2 and s["ok"] is False
+    assert s["badge"] == "1/2 numbers verified against source"
+
+
+def test_verify_run_checks_integrity_only_for_claims_with_a_snapshot():
+    close = {"id": "p1", "metric": "close", "source": "pricebook", "value": 100.0, "unit": "USD", "period": "2026-09-18"}
+    results = gate.verify_run(_inputs([close, nm_claim()], {"nm1": (_meta(NM_PAYLOAD), NM_PAYLOAD)}, prices={"2026-09-18": 100.0}))
+    integrity = [r for r in results if r.check_type == "snapshot_integrity"]
+    assert [r.claim_id for r in integrity] == ["nm1"]
+    assert gate.summarize(results)["verified_claims"] == 2
+
+
+def test_unit_check_passes_for_the_expected_unit():
+    r = gate.check_unit(nm_claim())
+    assert r.check_type == "unit" and r.status == "pass" and r.expected == "pct"
+
+
+@pytest.mark.parametrize("metric,unit,expected", [("net_margin", "ratio", "pct"), ("debt_to_equity", "pct", "ratio"),
+                                                  ("close", "pct", "USD"), ("y10", None, "pct")])
+def test_unit_check_fails_on_a_mismatch(metric, unit, expected):
+    r = gate.check_unit({"id": "u", "metric": metric, "unit": unit})
+    assert r.status == "fail" and r.reason == f"unit {unit}, expected {expected}"
+
+
+def test_unit_check_fails_for_a_metric_with_no_expected_unit():
+    r = gate.check_unit({"id": "u", "metric": "brand_new_metric", "unit": "pct"})
+    assert r.status == "fail" and r.reason == "no expected unit for metric brand_new_metric"
+
+
+def test_a_percentage_labelled_as_a_ratio_fails_through_verify_run_and_is_not_counted():
+    # The value itself traces to the source; only the unit is wrong, so only the unit check can catch it.
+    inputs = _inputs([nm_claim(), nm_claim(id="nm2", unit="ratio")],
+                     {cid: (_meta(NM_PAYLOAD), NM_PAYLOAD) for cid in ("nm1", "nm2")})
+    results = gate.verify_run(inputs)
+    by = {(r.claim_id, r.check_type): r for r in results}
+    assert by[("nm2", "traceability")].status == "pass"
+    assert by[("nm2", "unit")].status == "fail" and by[("nm2", "unit")].reason == "unit ratio, expected pct"
+    s = gate.summarize(results)
+    assert s["verified_claims"] == 1 and s["ok"] is False
+
+
+def test_an_unknown_metric_fails_through_verify_run_and_is_not_counted():
+    odd = {"id": "x1", "metric": "brand_new_metric", "source": "risk", "value": 1.0, "unit": "pct"}
+    results = gate.verify_run(_inputs([odd], {}, recomputed_risk={"score": 1.0}))
+    unit = [r for r in results if r.check_type == "unit"]
+    assert [r.status for r in unit] == ["fail"]
+    s = gate.summarize(results)
+    assert s["verified_claims"] == 0 and s["ok"] is False  # an unknown number can no longer leave the run "ok"  # a unit nobody vouched for is not "verified"
+
+
+def _metric_units_in_claims_source():
+    """Every (metric, unit) pair written as literals in a _make_claim(...) call in claims.py."""
+    src = (Path(gate.claims.__file__)).read_text(encoding="utf8")
+    pairs = set()
+    for node in ast.walk(ast.parse(src)):
+        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "_make_claim":
+            kw = {k.arg: k.value for k in node.keywords}
+            assert isinstance(kw["metric"], ast.Constant) and isinstance(kw["unit"], ast.Constant), "metric/unit must be literals"
+            pairs.add((kw["metric"].value, kw["unit"].value))
+    return pairs
+
+
+def test_expected_units_cover_every_metric_claims_can_emit():
+    pairs = _metric_units_in_claims_source()
+    metrics = {m for m, _ in pairs}
+    assert set(gate.claims.FORMULAS) <= metrics  # every derived formula is emitted somewhere
+    assert {"close", "eps", "y10", "y2", "y3m", "unemployment", "risk_score", "risk_below_ma200"} <= metrics
+    assert set(gate.claims.FORMULAS) <= set(vconfig.EXPECTED_UNITS)
+    for metric, unit in pairs:
+        assert vconfig.EXPECTED_UNITS.get(metric) == unit, f"{metric}: claims.py emits {unit}, table says {vconfig.EXPECTED_UNITS.get(metric)}"
+    assert set(vconfig.EXPECTED_UNITS) == metrics  # and nothing stale in the table
+
+
+def test_render_tolerance_is_the_plan_value():
+    assert vconfig.RENDER_TOLERANCE_REL == 0.005
+
+
+def _long_book(n=600):
+    import pandas as pd
+    from app import paper
+    dates = pd.bdate_range("2023-01-02", periods=n)
+    frames = {"AAPL": pd.DataFrame({"Close": [100.0 + 0.05 * k for k in range(n)]}, index=dates)}
+    return paper.PriceBook.from_frames(frames, {"AAPL": {}}), dates[-1].strftime("%Y-%m-%d")
+
+
+def _series(vals, instant=False):
+    rows = []
+    for year, v in zip((2023, 2024), vals):
+        row = {"end": f"{year}-12-31", "val": v, "filed": f"{year + 1}-02-01"}
+        if not instant:
+            row["start"] = f"{year}-01-01"
+        rows.append(row)
+    return {"tag": "X", "unit": "USD", "series": rows}
+
+
+def _seed_snapshots():
+    concepts = {
+        "revenue": _series((100.0, 110.0)), "net_income": _series((20.0, 25.0)), "operating_income": _series((22.0, 28.0)),
+        "op_cash_flow": _series((30.0, 35.0)), "capex": _series((5.0, 6.0)), "eps": _series((2.0, 2.5)),
+        "equity": _series((50.0, 55.0), instant=True), "long_term_debt": _series((10.0, 12.0), instant=True),
+        "liabilities": _series((40.0, 45.0), instant=True),
+    }
+    snapshot_store.put("sec_facts", "AAPL", "2024-12-31", {"cik": 320193, "concepts": concepts}, fetched_at="2026-09-15T10:00:00+00:00")
+    snapshot_store.put("treasury", "", "2025-03-10", [{"date": "2024-12-10", "y10": 4.2, "y2": 3.5, "y3m": 4.7},
+                                                      {"date": "2025-03-10", "y10": 4.5, "y2": 3.8, "y3m": 5.0}],
+                       fetched_at="2026-09-11T10:00:00+00:00")
+    months = [f"{y}-{m:02d}" for y in (2023, 2024, 2025) for m in range(1, 13)][:27]  # through 2025-03
+    snapshot_store.put("bls", "cpi", "2025-03", [{"month": mo, "value": 300.0 + i} for i, mo in enumerate(months)],
+                       fetched_at="2026-09-11T10:00:00+00:00")
+    snapshot_store.put("bls", "unemployment", "2025-03", [{"month": mo, "value": 4.0} for mo in months],
+                       fetched_at="2026-09-11T10:00:00+00:00")
+
+
+@pytest.fixture()
+def seeded(tmp_path, monkeypatch):
+    """Snapshots in the temp DB and a free-data dir of its own (no network, no real cache)."""
+    import importlib
+    from app import claims, free_data
+    monkeypatch.setenv("FREE_DATA_DIR", str(tmp_path / "free_data"))
+    monkeypatch.setenv("SEC_USER_AGENT", "GlassBox test ops@example.com")
+    importlib.reload(free_data)
+    importlib.reload(claims)
+    _seed_snapshots()
+    return _long_book()
+
+
+def test_every_metric_a_real_build_emits_has_its_expected_unit(seeded):
+    from app import claims
+    book, d = seeded
+    built = claims.build_claims(f"{d}:AAPL", "AAPL", d, book, "2026-09-15T12:00:00+00:00")
+    sources = {c["source"] for c in built}
+    assert sources == {"pricebook", "sec_facts", "treasury", "bls", "risk"}  # the fixture reaches every kind of source
+    assert len({c["metric"] for c in built}) >= 20  # and nearly every metric (the source scan above covers the rest)
+    for c in built:
+        assert vconfig.EXPECTED_UNITS.get(c["metric"]) == c["unit"], c["metric"]
+        assert gate.check_unit(c).status == "pass"
+
+
+@pytest.mark.asyncio
+async def test_run_gate_stores_the_new_checks_and_catches_a_tampered_snapshot(seeded):
+    """Production path: claims built and stored, then run_gate loads snapshots (with payload_hash) from the DB."""
+    from sqlalchemy import select, update
+    from app import claims
+    from app.migrated_tables import source_snapshots_table, verification_results_table
+    from app.verification.runner import run_gate
+    book, d = seeded
+    run_id, run_time = f"{d}:AAPL", "2026-09-15T12:00:00+00:00"
+    built = claims.build_claims(run_id, "AAPL", d, book, run_time)
+    with_snap = {c["id"] for c in built if c.get("source_snapshot_id")}
+    assert with_snap
+
+    first = await run_gate(run_id, run_time, book)
+    with db.engine.connect() as conn:
+        rows = conn.execute(select(verification_results_table).where(verification_results_table.c.run_id == run_id)).fetchall()
+    integ = {r.claim_id: r.status for r in rows if r.check_type == "snapshot_integrity"}
+    units = [r.status for r in rows if r.check_type == "unit"]
+    assert set(integ) == with_snap and set(integ.values()) == {"pass"}
+    assert len(units) == len(built) and set(units) == {"pass"}
+
+    # Tamper with the stored sec_facts payload (one value changed; the stored hash is left as it was).
+    with db.engine.begin() as conn:
+        snap = conn.execute(select(source_snapshots_table).where(source_snapshots_table.c.source == "sec_facts")).fetchone()
+        payload = json.loads(snap.payload_json)
+        payload["concepts"]["revenue"]["series"][0]["val"] = 999.0
+        conn.execute(update(source_snapshots_table).where(source_snapshots_table.c.id == snap.id)
+                     .values(payload_json=snapshot_store._canonical_json(payload)))
+    second = await run_gate(run_id, run_time, book)
+    with db.engine.connect() as conn:
+        rows = conn.execute(select(verification_results_table).where(verification_results_table.c.run_id == run_id)).fetchall()
+    sec_ids = {c["id"] for c in built if c["source"] == "sec_facts"}
+    bad = {r.claim_id for r in rows if r.check_type == "snapshot_integrity" and r.status == "fail"}
+    assert sec_ids and bad == sec_ids
+    assert all(r.reason == "payload does not match its stored hash" for r in rows if r.claim_id in bad and r.check_type == "snapshot_integrity")
+    assert second["verified_claims"] <= first["verified_claims"] - len(sec_ids)
+    assert second["ok"] is False
+
+
+def _realistic_run():
+    """20 snapshot claims over a sizeable payload, a close, four risk claims, 600 closes and a narrative."""
+    concepts = {f"c{k}": {"series": [{"end": f"20{10 + i // 4}-{3 * (i % 4) + 1:02d}-28", "val": float(i * k + 1)} for i in range(60)]}
+                for k in range(10)}
+    concepts["net_income"] = {"series": [{"val": 10.0}]}
+    concepts["revenue"] = {"series": [{"val": 100.0}]}
+    payload = {"concepts": concepts}
+    meta = _meta(payload)
+    snap_claims = [nm_claim(id=f"nm{i}") for i in range(20)]
+    close = {"id": "p1", "metric": "close", "source": "pricebook", "value": 100.0, "unit": "USD", "period": "2026-09-18", "run_id": "r"}
+    risk_claims = [{"id": f"r{i}", "metric": m, "source": "risk", "value": v, "unit": u}
+                   for i, (m, v, u) in enumerate([("risk_score", 0.4, "ratio"), ("risk_vol_pct", 22.0, "pct"),
+                                                  ("risk_drawdown", -8.0, "pct"), ("risk_below_ma200", 0.0, "count")])]
+    all_claims = snap_claims + [close] + risk_claims
+    prices = {f"day{i}": 100.0 + i for i in range(599)}
+    prices["2026-09-18"] = 100.0
+    text = " ".join(f"Point {{{{claim:{c['id']}}}}} holds." for c in all_claims)
+    narrative_row = {"run_id": "r", "narrative": text, "status": "ok"}
+    return _inputs(all_claims, {c["id"]: (meta, payload) for c in snap_claims}, prices=prices,
+                   recomputed_risk={"score": 0.4, "vol_pct": 22.0, "drawdown": -8.0, "below_ma200": False},
+                   narrative_row=narrative_row)
+
+
+def test_gate_latency_for_a_realistic_run_is_under_200_ms():
+    inputs = _realistic_run()
+    gate.summarize(gate.verify_run(inputs))  # warm-up (first-call imports and regex compiles)
+    t0 = time.perf_counter()
+    results = gate.verify_run(inputs)
+    summary = gate.summarize(results)
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+    assert summary["total_claims"] == 25 and summary["verified_claims"] == 25 and summary["ok"] is True  # a real, all-pass run
+    assert elapsed_ms < 200, f"gate took {elapsed_ms:.1f} ms"

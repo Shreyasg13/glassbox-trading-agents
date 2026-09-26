@@ -14,13 +14,15 @@ data.py/monte_carlo.py/tts.py sidesteps that.
 from __future__ import annotations
 
 import asyncio
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from .. import claims, compliance, db, jobs, narrative, orchestration, snapshot_store, verification
-from ..verification import gate
+from ..verification import gate, health
 from ..auth import TokenPayload, require_admin
 from ..models import (
     AgentConfig,
@@ -503,3 +505,25 @@ async def list_compliance_rules() -> List[Dict[str, Any]]:
         return [r.public() for r in compliance.load_rules()]
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=f"compliance rules could not be loaded: {exc}")
+
+# ---- Gate health (S3 T14) ----
+
+GATE_HEALTH_DEFAULT_DAYS = 30
+GATE_HEALTH_MAX_DAYS = 366
+
+
+@router.get("/gate-health")
+async def gate_health(
+    from_: Optional[date] = Query(None, alias="from"),
+    to: Optional[date] = Query(None),
+) -> Dict[str, Any]:
+    """Daily claim pass rate, top failing checks and top failing metrics for committee runs dated from..to (inclusive).
+    Defaults to the last 30 days; a range longer than 366 days is refused. Read-only. The DB read and aggregation run
+    in a worker thread so they never block the event loop."""
+    end = to or datetime.now(timezone.utc).date()
+    start = from_ or end - timedelta(days=GATE_HEALTH_DEFAULT_DAYS - 1)
+    if start > end:
+        raise HTTPException(status_code=400, detail="'from' must be on or before 'to'")
+    if (end - start).days + 1 > GATE_HEALTH_MAX_DAYS:
+        raise HTTPException(status_code=400, detail=f"Date range is longer than {GATE_HEALTH_MAX_DAYS} days")
+    return await run_in_threadpool(health.load, start, end)

@@ -21,6 +21,21 @@ into a dated release with a git tag.
   build plan named `rules.yaml`; PyYAML is not installed and adding a dependency was out of scope, so the file is JSON.
 - **Admin → Compliance tab** and `GET /api/admin/compliance/events?from&to&action&limit`, `GET /api/admin/compliance/rules`
   (admin only): the log of rule hits (time, channel, rule, action, matched text) with an action filter, and the loaded rules.
+- **Two more A6 gate checks** (T4b), stored with the others for every run. **Snapshot integrity**: each claim's snapshot
+  payload must still hash to the `payload_hash` stored with it (same canonical JSON as the snapshot store); a changed payload
+  or a missing hash fails, and that number is not counted as verified. **Units**: each claim's unit must be the one expected
+  for its metric (`EXPECTED_UNITS` in `verification/config.py`, covering all 21 metrics claims can emit), so a percentage and
+  a ratio are never compared as the same thing; a mismatch fails, and so does a metric with no expected unit.
+- The gate's tolerance is now written down: claim values are copied from the source, so traceability stays exact (stricter
+  than the plan's 0.5%). `RENDER_TOLERANCE_REL = 0.005` is recorded for numbers as rendered to users (T7; not used yet).
+- A latency test: a realistic run (20 snapshot claims, a close, risk, a narrative) goes through the gate in well under the
+  plan's 200 ms. Users see no change: the gate still blocks nothing until T5.
+- **Gate health dashboard** (T14). Admin → Strategy → Gate health: for any date range (default the last 30 days, at most
+  366) it shows the share of claims that passed every A6 check per day (a staleness warning alone does not disqualify, the
+  same rule as the badge), how many runs had no failed check, the five checks that fail most often with their most common
+  reason, and the five claim metrics that fail most often. Ask and challenger runs are not counted. Read-only:
+  `GET /api/admin/gate-health?from=&to=` (admin only) aggregates the existing `verification_results` and `claims` tables;
+  no migration.
 
 ### Changed
 - Removed the "For Advisors" section and its nav link. It pitched paid advisor features (white-label, multi-client,
