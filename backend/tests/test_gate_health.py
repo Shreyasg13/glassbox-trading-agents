@@ -28,6 +28,18 @@ def claim_rows(run_id, cid, checks):
     return [row(run_id, ct, st, cid, rs) for ct, st, rs in checks]
 
 
+def daily(rows, start, end):
+    return health.daily_pass_rate(health.in_range(rows, start, end))
+
+
+def checks_top(rows, start, end):
+    return health.top_failing_checks(health.in_range(rows, start, end))
+
+
+def metrics_top(rows, metric_by_claim_id, start, end):
+    return health.top_failing_metrics(health.in_range(rows, start, end), metric_by_claim_id)
+
+
 PASS_SNAPSHOT = [("traceability", "pass", None), ("point_in_time", "pass", "snapshot fetched before or at run time"),
                  ("staleness", "pass", "data is fresh (age 0 day(s) <= window 1 day(s))")]
 
@@ -62,7 +74,7 @@ def mixed_rows():
 
 
 def test_daily_pass_rate_with_mixed_runs():
-    days = health.daily_pass_rate(mixed_rows(), D1, D3)
+    days = daily(mixed_rows(), D1, D3)
     assert [d["date"] for d in days] == ["2026-09-17", "2026-09-18"]
     d1, d2 = days
     assert d1 == {"date": "2026-09-17", "claims_checked": 2, "claims_verified": 1, "runs_checked": 1, "runs_ok": 0,
@@ -77,11 +89,11 @@ def test_daily_pass_rate_with_mixed_runs():
 
 def test_warn_only_claim_counts_as_verified_but_other_warns_do_not():
     rows = claim_rows("2026-09-18:AAPL", "c1", [("traceability", "pass", None), ("staleness", "warn", None)])
-    [d] = health.daily_pass_rate(rows, D2, D2)
+    [d] = daily(rows, D2, D2)
     assert (d["claims_checked"], d["claims_verified"], d["runs_ok"]) == (1, 1, 1)
     # A non-staleness warn is not a pass (gate.summarize's rule), so this claim is not verified.
     rows = claim_rows("2026-09-18:AAPL", "c1", [("traceability", "pass", None), ("point_in_time", "warn", None)])
-    [d] = health.daily_pass_rate(rows, D2, D2)
+    [d] = daily(rows, D2, D2)
     assert (d["claims_checked"], d["claims_verified"]) == (1, 0)
 
 
@@ -89,13 +101,13 @@ def test_pass_rate_agrees_with_gate_summarize_per_run():
     from app.verification import gate
     rows = [r for r in mixed_rows() if r["run_id"] == "2026-09-18:AAPL"]
     s = gate.summarize([gate.Result(r["check_type"], r["status"], r["claim_id"], None, None, r["reason"]) for r in rows])
-    [d] = health.daily_pass_rate(rows, D2, D2)
+    [d] = daily(rows, D2, D2)
     assert (d["claims_verified"], d["claims_checked"]) == (s["verified_claims"], s["total_claims"]) == (4, 5)
 
 
 def test_run_with_only_a_narrative_result_has_no_pass_rate():
     rows = [row("2026-09-18:AAPL", "narrative", "warn", None, "no narrative row found")]
-    [d] = health.daily_pass_rate(rows, D2, D2)
+    [d] = daily(rows, D2, D2)
     assert d["claims_checked"] == 0 and d["pass_rate"] is None and d["runs_checked"] == 1
 
 
@@ -104,11 +116,11 @@ def test_run_with_only_a_narrative_result_has_no_pass_rate():
 
 def test_date_range_edges_are_inclusive():
     rows = mixed_rows()
-    assert [d["date"] for d in health.daily_pass_rate(rows, D1, D1)] == ["2026-09-17"]
-    assert [d["date"] for d in health.daily_pass_rate(rows, D2, D2)] == ["2026-09-18"]
-    assert [d["date"] for d in health.daily_pass_rate(rows, D1, D2)] == ["2026-09-17", "2026-09-18"]
-    assert health.daily_pass_rate(rows, D3, D3) == []
-    assert health.daily_pass_rate(rows, date(2026, 9, 1), date(2026, 9, 16)) == []
+    assert [d["date"] for d in daily(rows, D1, D1)] == ["2026-09-17"]
+    assert [d["date"] for d in daily(rows, D2, D2)] == ["2026-09-18"]
+    assert [d["date"] for d in daily(rows, D1, D2)] == ["2026-09-17", "2026-09-18"]
+    assert daily(rows, D3, D3) == []
+    assert daily(rows, date(2026, 9, 1), date(2026, 9, 16)) == []
 
 
 def test_ask_and_challenger_runs_are_excluded():
@@ -133,7 +145,7 @@ def test_empty_range():
 
 
 def test_top_failing_checks_counts_reasons_and_excludes_warns():
-    top = health.top_failing_checks(mixed_rows(), D1, D3)
+    top = checks_top(mixed_rows(), D1, D3)
     # traceability 1 (ask/chal excluded), point_in_time 1, narrative 1: tie -> alphabetical. Staleness only warned.
     assert top == [
         {"check_type": "narrative", "failures": 1, "top_reason": "narrative validation failed after retry"},
@@ -151,7 +163,7 @@ def test_top_failing_checks_ordering_ties_and_limit_of_five():
     # traceability's most common reason: 4x "snapshot not found" beats 2x "value does not match source".
     for i in range(2):
         rows[i]["reason"] = "value does not match source"
-    top = health.top_failing_checks(rows, D2, D2)
+    top = checks_top(rows, D2, D2)
     assert [(t["check_type"], t["failures"]) for t in top] == [
         ("traceability", 6), ("price", 4), ("risk", 4), ("point_in_time", 3), ("narrative", 2)]
     assert top[0]["top_reason"] == "snapshot not found"
@@ -160,7 +172,7 @@ def test_top_failing_checks_ordering_ties_and_limit_of_five():
 def test_most_common_reason_tie_is_stable():
     rows = [row("2026-09-18:A", "price", "fail", "p1", "price for date 2026-09-18 not in price book"),
             row("2026-09-18:A", "price", "fail", "p2", "price does not match price book")]
-    [t] = health.top_failing_checks(rows, D2, D2)
+    [t] = checks_top(rows, D2, D2)
     assert t["top_reason"] == "price does not match price book"
 
 
@@ -182,7 +194,7 @@ def test_top_failing_metrics_joins_claims_on_claim_id():
     ]
     metrics = {"a-rev": "revenue", "m-rev": "revenue", "a-close": "close", "a-vol": "risk_vol_pct", "a-eps": "eps",
                "ask-rev": "revenue"}
-    top = health.top_failing_metrics(rows, metrics, D2, D2)
+    top = metrics_top(rows, metrics, D2, D2)
     assert top == [
         {"metric": "revenue", "failures": 3, "claims": 2},
         {"metric": "close", "failures": 1, "claims": 1},
@@ -197,7 +209,7 @@ def test_top_failing_metrics_limit_of_five():
             cid = f"{name}-{i}"
             metrics[cid] = name
             rows.append(row("2026-09-18:AAPL", "traceability", "fail", cid))
-    top = health.top_failing_metrics(rows, metrics, D2, D2)
+    top = metrics_top(rows, metrics, D2, D2)
     assert [t["metric"] for t in top] == ["g", "f", "e", "d", "c"]
 
 
@@ -248,6 +260,27 @@ def test_load_reads_the_database(temp_db):
     # Edge day only.
     assert [d["date"] for d in health.load(D2, D2)["days"]] == ["2026-09-18"]
     assert health.load(D3, D3)["days"] == []
+
+
+def test_load_joins_metrics_across_several_id_chunks(temp_db):
+    # 1201 committee runs, each with one claim whose snapshot is missing: the failing claim ids need three lookups of
+    # CLAIM_ID_CHUNK (500, 500, 201); every one must still be joined to its metric.
+    n = 2 * health.CLAIM_ID_CHUNK + 201
+    days = ["2026-09-17", "2026-09-18", "2026-09-19"]
+    names = ["revenue", "net_income", "eps_diluted"]
+    rows, claims = [], {}
+    for i in range(n):
+        run_id = f"{days[i % 3]}:T{i:04d}"
+        rows.append(row(run_id, "traceability", "fail", f"c-{i:04d}", "snapshot not found"))
+        claims[f"c-{i:04d}"] = (run_id, names[i % 3])
+    _store(temp_db, rows, claims)
+    out = health.load(D1, D3)
+    assert out["totals"]["runs_checked"] == n and out["totals"]["claims_checked"] == n
+    assert out["totals"]["claims_verified"] == 0
+    assert out["top_metrics"] == [{"metric": "revenue", "failures": 401, "claims": 401},
+                                  {"metric": "eps_diluted", "failures": 400, "claims": 400},
+                                  {"metric": "net_income", "failures": 400, "claims": 400}]
+    assert out["top_checks"] == [{"check_type": "traceability", "failures": n, "top_reason": "snapshot not found"}]
 
 
 def _client_as(role):

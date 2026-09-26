@@ -18,67 +18,94 @@ function pct(v: number | null) {
   return v === null ? "—" : `${(v * 100).toFixed(1)}%`;
 }
 
-// Chart geometry (viewBox units; the SVG scales to the panel width).
-const W = 640;
-const H = 180;
-const PAD = { l: 38, r: 8, t: 8, b: 22 };
-const PLOT_H = H - PAD.t - PAD.b;
-const TICKS = [0, 0.25, 0.5, 0.75, 1];
-
-/** A bar anchored flat on the baseline with 4px-rounded top corners (radius shrinks for very short or thin bars). */
-function barPath(x: number, w: number, top: number, base: number) {
-  const r = Math.min(4, w / 2, base - top);
-  return `M${x},${base} V${top + r} Q${x},${top} ${x + r},${top} H${x + w - r} Q${x + w},${top} ${x + w},${top + r} V${base} Z`;
+/** Whole days since the Unix epoch for a YYYY-MM-DD string (UTC, so no DST drift). */
+function dayNumber(iso: string) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return Math.round(Date.UTC(y, m - 1, d) / 86_400_000);
 }
 
-/** Per-day share of claims that passed every gate check. The y axis is fixed at 0–100% so days compare honestly. */
-function PassRateChart({ days }: { days: GateHealthDay[] }) {
-  const plotW = W - PAD.l - PAD.r;
-  const slot = plotW / days.length;
-  const gap = Math.min(2, slot * 0.25);
-  const barW = Math.max(1, Math.min(24, slot - gap));
-  const y = (v: number) => PAD.t + PLOT_H * (1 - v);
-  const base = y(0);
+// Chart geometry. The plot has a fixed pixel height and stretches to the panel width; axis labels are HTML so they stay
+// readable at any width. Inside the SVG each day of the selected range is one SLOT-wide column (viewBox units), and the
+// y axis runs 0 (bottom) to 100 (top) = 0–100%.
+const PLOT_PX = 160;
+const SLOT = 10;
+const BAR = 7;
+const MARK = 2.5; // height of the baseline marks (0% day / no claims checked), ≈4px at PLOT_PX
+const TICKS = [0, 0.25, 0.5, 0.75, 1];
+
+/** Per-day share of claims that passed every gate check, placed at each date's offset in from..to so weekends and
+ * missed days show as gaps. The y axis is fixed at 0–100% so days compare honestly. */
+function PassRateChart({ days, from, to }: { days: GateHealthDay[]; from: string; to: string }) {
+  const start = dayNumber(from);
+  const slots = Math.max(1, dayNumber(to) - start + 1);
+  const w = slots * SLOT;
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Daily claim pass rate, 0 to 100 percent">
-      {TICKS.map((t) => (
-        <g key={t}>
-          <line x1={PAD.l} x2={W - PAD.r} y1={y(t)} y2={y(t)} stroke="var(--c-border2)" strokeDasharray={t === 0 ? undefined : "2 4"} />
-          <text x={PAD.l - 6} y={y(t) + 3} fontSize={10} textAnchor="end" fill="var(--c-t3, #8a94a6)">
-            {Math.round(t * 100)}%
-          </text>
-        </g>
-      ))}
-      {days.map((d, i) => {
-        const cx = PAD.l + slot * i + slot / 2;
-        const x = cx - barW / 2;
-        const label =
-          d.pass_rate === null
-            ? `${d.date}: no claims checked · ${d.runs_ok}/${d.runs_checked} runs ok`
-            : `${d.date}: ${pct(d.pass_rate)} (${d.claims_verified}/${d.claims_checked} claims) · ${d.runs_ok}/${d.runs_checked} runs ok`;
-        return (
-          <g key={d.date} className="group">
-            <title>{label}</title>
-            {/* Hit target: the whole column, so a 0% day can still be hovered. */}
-            <rect x={PAD.l + slot * i} y={PAD.t} width={slot} height={PLOT_H} fill="transparent" className="group-hover:fill-[var(--c-bg3)]" />
-            {d.pass_rate === null ? (
-              <line x1={x} x2={x + barW} y1={base} y2={base} stroke="var(--c-t3, #8a94a6)" strokeWidth={2} />
-            ) : (
-              d.pass_rate > 0 && <path d={barPath(x, barW, y(d.pass_rate), base)} fill="var(--c-teal)" />
-            )}
-          </g>
-        );
-      })}
-      <text x={PAD.l} y={H - 6} fontSize={10} fill="var(--c-t3, #8a94a6)">
-        {days[0].date}
-      </text>
-      {days.length > 1 && (
-        <text x={W - PAD.r} y={H - 6} fontSize={10} textAnchor="end" fill="var(--c-t3, #8a94a6)">
-          {days[days.length - 1].date}
-        </text>
-      )}
-    </svg>
+    <div>
+      <div className="flex gap-sp2">
+        <div className="relative w-[34px] shrink-0" style={{ height: PLOT_PX }} aria-hidden="true">
+          {TICKS.map((t) => (
+            <span key={t} className="absolute right-0 -translate-y-1/2 text-[10px] leading-none text-t3" style={{ top: `${(1 - t) * 100}%` }}>
+              {Math.round(t * 100)}%
+            </span>
+          ))}
+        </div>
+        <svg
+          viewBox={`0 0 ${w} 100`}
+          preserveAspectRatio="none"
+          className="block min-w-0 flex-1"
+          style={{ height: PLOT_PX }}
+          role="img"
+          aria-label={`Daily claim pass rate from ${from} to ${to}, 0 to 100 percent`}
+        >
+          {TICKS.map((t) => (
+            <line
+              key={t}
+              x1={0}
+              x2={w}
+              y1={100 * (1 - t)}
+              y2={100 * (1 - t)}
+              stroke="var(--c-border2)"
+              strokeDasharray={t === 0 ? undefined : "2 4"}
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+          {days.map((d) => {
+            const off = dayNumber(d.date) - start;
+            if (off < 0 || off >= slots) return null;
+            const x = off * SLOT + (SLOT - BAR) / 2;
+            const label =
+              d.pass_rate === null
+                ? `${d.date}: no claims checked · ${d.runs_ok}/${d.runs_checked} runs ok`
+                : `${d.date}: ${pct(d.pass_rate)} verified (${d.claims_verified}/${d.claims_checked} claims) · ${d.runs_ok}/${d.runs_checked} runs ok`;
+            return (
+              <g key={d.date} className="group">
+                <title>{label}</title>
+                {/* Hit target: the whole column, so a 0% day or a no-claims day can still be hovered. */}
+                <rect x={off * SLOT} y={0} width={SLOT} height={100} fill="transparent" className="group-hover:fill-[var(--c-bg3)]" />
+                {d.pass_rate === null ? (
+                  <rect x={x} y={100 - MARK} width={BAR} height={MARK} fill="var(--c-t3, #8a94a6)" />
+                ) : d.pass_rate === 0 ? (
+                  <rect x={x} y={100 - MARK} width={BAR} height={MARK} fill="var(--c-red)" />
+                ) : (
+                  <rect x={x} y={100 * (1 - d.pass_rate)} width={BAR} height={100 * d.pass_rate} fill="var(--c-teal)" />
+                )}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+      <div className="ml-[42px] mt-1 flex justify-between text-[10px] text-t3">
+        <span className="mono">{from}</span>
+        <span className="mono">{to}</span>
+      </div>
+      <p className="ml-[42px] mt-1 flex flex-wrap gap-x-sp3 text-[10px] text-t3">
+        <span><span className="mr-1 inline-block h-[8px] w-[8px] rounded-[2px] bg-teal align-middle" />share of claims verified</span>
+        <span><span className="mr-1 inline-block h-[3px] w-[10px] bg-red align-middle" />0% verified</span>
+        <span><span className="mr-1 inline-block h-[3px] w-[10px] bg-t3 align-middle" />no claims checked</span>
+        <span>gaps: no committee runs that day</span>
+      </p>
+    </div>
   );
 }
 
@@ -152,7 +179,7 @@ export function GateHealthPanel() {
             {data.days.length > 0 && (
               <div className="mt-sp3">
                 <h3 className="mb-1 text-[10px] uppercase tracking-wider text-t3">Claims verified per day</h3>
-                <PassRateChart days={data.days} />
+                <PassRateChart days={data.days} from={data.from} to={data.to} />
                 <details className="mt-sp2 text-[11px]">
                   <summary className="cursor-pointer text-t3">Per-day table</summary>
                   <table className="mt-sp2 w-full text-left">

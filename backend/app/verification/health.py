@@ -22,6 +22,7 @@ from .. import db
 from ..migrated_tables import claims_table, verification_results_table
 
 TOP_N = 5
+CLAIM_ID_CHUNK = 500  # failing claim ids looked up per IN (...) query
 _EXCLUDED_PREFIXES = (db.COMMITTEE_ASK_PREFIX, db.CHALLENGER_PREFIX)
 
 
@@ -56,15 +57,20 @@ def _as_result(r: Any) -> gate.Result:
                        expected=None, observed=None, reason=_get(r, "reason") or "")
 
 
-def daily_pass_rate(rows: Iterable[Any], start: date, end: date) -> List[Dict[str, Any]]:
+# The three aggregates below take rows ALREADY filtered by `in_range` (aggregate filters once and passes them on).
+
+
+def daily_pass_rate(rows: Iterable[Any]) -> List[Dict[str, Any]]:
     """One entry per day that has gate results: claims fully verified / claims checked, and runs checked / runs ok.
 
     Each run is summarised by `gate.summarize` (the badge's own rule). `pass_rate` is None when no claim was checked that
-    day (e.g. only a narrative check was stored). Days are in ascending order.
+    day (e.g. only a narrative check was stored). Days are in ascending order. Rows that are not from a dated committee
+    run are ignored.
     """
     by_run: Dict[str, List[gate.Result]] = defaultdict(list)
-    for r in in_range(rows, start, end):
-        by_run[_get(r, "run_id")].append(_as_result(r))
+    for r in rows:
+        if run_date(_get(r, "run_id")) is not None:
+            by_run[_get(r, "run_id")].append(_as_result(r))
 
     days: Dict[date, Dict[str, int]] = defaultdict(lambda: {"claims_checked": 0, "claims_verified": 0, "runs_checked": 0, "runs_ok": 0})
     for rid, results in by_run.items():
@@ -88,14 +94,14 @@ def _most_common(counter: Counter) -> Optional[str]:
     return min(counter.items(), key=lambda kv: (-kv[1], kv[0]))[0]
 
 
-def top_failing_checks(rows: Iterable[Any], start: date, end: date, n: int = TOP_N) -> List[Dict[str, Any]]:
+def top_failing_checks(rows: Iterable[Any], n: int = TOP_N) -> List[Dict[str, Any]]:
     """The n check types with the most `fail` results, each with its most common reason.
 
     Warns are not failures. Ordered by count (highest first), ties by check type name.
     """
     counts: Counter = Counter()
     reasons: Dict[str, Counter] = defaultdict(Counter)
-    for r in in_range(rows, start, end):
+    for r in rows:
         if _get(r, "status") != "fail":
             continue
         ct = _get(r, "check_type")
@@ -105,8 +111,7 @@ def top_failing_checks(rows: Iterable[Any], start: date, end: date, n: int = TOP
     return [{"check_type": ct, "failures": c, "top_reason": _most_common(reasons[ct])} for ct, c in ranked]
 
 
-def top_failing_metrics(rows: Iterable[Any], metric_by_claim_id: Mapping[str, str], start: date, end: date,
-                        n: int = TOP_N) -> List[Dict[str, Any]]:
+def top_failing_metrics(rows: Iterable[Any], metric_by_claim_id: Mapping[str, str], n: int = TOP_N) -> List[Dict[str, Any]]:
     """The n claim metrics with the most `fail` results (failing results joined to `claims` on claim_id).
 
     `failures` counts failing results; `claims` counts distinct claims with at least one failure. Results without a
@@ -115,7 +120,7 @@ def top_failing_metrics(rows: Iterable[Any], metric_by_claim_id: Mapping[str, st
     """
     failures: Counter = Counter()
     claim_ids: Dict[str, set] = defaultdict(set)
-    for r in in_range(rows, start, end):
+    for r in rows:
         if _get(r, "status") != "fail":
             continue
         cid = _get(r, "claim_id")
@@ -130,8 +135,8 @@ def top_failing_metrics(rows: Iterable[Any], metric_by_claim_id: Mapping[str, st
 
 def aggregate(rows: Iterable[Any], metric_by_claim_id: Mapping[str, str], start: date, end: date) -> Dict[str, Any]:
     """Everything the Gate health tab shows, for committee runs dated start..end (inclusive)."""
-    rows = in_range(rows, start, end)
-    days = daily_pass_rate(rows, start, end)
+    rows = in_range(rows, start, end)  # the only date filter; the aggregates below reuse these rows
+    days = daily_pass_rate(rows)
     checked = sum(d["claims_checked"] for d in days)
     verified = sum(d["claims_verified"] for d in days)
     return {
@@ -145,8 +150,8 @@ def aggregate(rows: Iterable[Any], metric_by_claim_id: Mapping[str, str], start:
             "runs_checked": sum(d["runs_checked"] for d in days),
             "runs_ok": sum(d["runs_ok"] for d in days),
         },
-        "top_checks": top_failing_checks(rows, start, end),
-        "top_metrics": top_failing_metrics(rows, metric_by_claim_id, start, end),
+        "top_checks": top_failing_checks(rows),
+        "top_metrics": top_failing_metrics(rows, metric_by_claim_id),
     }
 
 
@@ -164,8 +169,8 @@ def load(start: date, end: date) -> Dict[str, Any]:
         ).fetchall()
         failing_ids = sorted({r.claim_id for r in rows if r.status == "fail" and r.claim_id})
         metric_by_claim_id: Dict[str, str] = {}
-        for i in range(0, len(failing_ids), 500):  # stay well under SQLite's bound-parameter limit
-            chunk = failing_ids[i:i + 500]
+        for i in range(0, len(failing_ids), CLAIM_ID_CHUNK):  # stay well under SQLite's bound-parameter limit
+            chunk = failing_ids[i:i + CLAIM_ID_CHUNK]
             for c in conn.execute(select(claims_table.c.id, claims_table.c.metric).where(claims_table.c.id.in_(chunk))):
                 metric_by_claim_id[c.id] = c.metric
     return aggregate(rows, metric_by_claim_id, start, end)

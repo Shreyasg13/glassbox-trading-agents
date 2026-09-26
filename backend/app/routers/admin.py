@@ -14,9 +14,11 @@ data.py/monte_carlo.py/tts.py sidesteps that.
 from __future__ import annotations
 
 import asyncio
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from .. import claims, db, jobs, narrative, orchestration, snapshot_store, verification
@@ -434,23 +436,22 @@ async def get_verification_summary(date: str) -> Dict[str, Any]:
 
 # ---- Gate health (S3 T14) ----
 
-from datetime import date as _date, datetime as _datetime, timedelta as _timedelta, timezone as _timezone
-
 GATE_HEALTH_DEFAULT_DAYS = 30
 GATE_HEALTH_MAX_DAYS = 366
 
 
 @router.get("/gate-health")
 async def gate_health(
-    from_: Optional[_date] = Query(None, alias="from"),
-    to: Optional[_date] = Query(None),
+    from_: Optional[date] = Query(None, alias="from"),
+    to: Optional[date] = Query(None),
 ) -> Dict[str, Any]:
     """Daily claim pass rate, top failing checks and top failing metrics for committee runs dated from..to (inclusive).
-    Defaults to the last 30 days; a range longer than 366 days is refused. Read-only."""
-    end = to or _datetime.now(_timezone.utc).date()
-    start = from_ or end - _timedelta(days=GATE_HEALTH_DEFAULT_DAYS - 1)
+    Defaults to the last 30 days; a range longer than 366 days is refused. Read-only. The DB read and aggregation run
+    in a worker thread so they never block the event loop."""
+    end = to or datetime.now(timezone.utc).date()
+    start = from_ or end - timedelta(days=GATE_HEALTH_DEFAULT_DAYS - 1)
     if start > end:
         raise HTTPException(status_code=400, detail="'from' must be on or before 'to'")
     if (end - start).days + 1 > GATE_HEALTH_MAX_DAYS:
         raise HTTPException(status_code=400, detail=f"Date range is longer than {GATE_HEALTH_MAX_DAYS} days")
-    return health.load(start, end)
+    return await run_in_threadpool(health.load, start, end)
