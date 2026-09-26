@@ -6,7 +6,6 @@ import { StrategyLenses } from "@/components/marketing/StrategyLenses";
 import { ConversionCTA } from "@/components/marketing/ConversionCTA";
 import { AgentLauncher } from "@/components/marketing/AgentLauncher";
 import { ScoreFeedback } from "@/components/marketing/ScoreFeedback";
-import { ForAdvisors } from "@/components/marketing/ForAdvisors";
 import { Pricing } from "@/components/marketing/Pricing";
 import { Blog } from "@/components/marketing/Blog";
 
@@ -20,7 +19,6 @@ export default function LandingPage() {
       <HowItWorks />
       <MLProvenance />
       <ScoreFeedback />
-      <ForAdvisors />
       <Pricing />
       <Blog />
       <AgentLauncher />
