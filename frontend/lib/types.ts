@@ -532,3 +532,29 @@ export type LedgerVerify = {
   first_bad_seq: number | null;
   reason: string;
 };
+
+// ---- Compliance filter (admin) ----
+
+export type ComplianceAction = "blocked" | "rewritten" | "flagged";
+
+export type ComplianceEvent = {
+  id: string;
+  run_id: string | null;
+  channel: string;
+  rule_id: string;
+  matched_text: string;
+  action: ComplianceAction;
+  created_at: string;
+};
+
+export type ComplianceRule = {
+  id: string;
+  description: string;
+  kind: "phrase" | "regex" | "requires";
+  action: "block" | "rewrite" | "flag";
+  patterns?: string[];
+  allow?: string[];
+  unless?: string;
+  pattern?: string;
+  replacement?: string;
+};
