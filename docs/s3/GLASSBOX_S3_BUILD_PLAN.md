@@ -328,8 +328,8 @@ ADMIN   GET  /admin/flags      POST /admin/flags/{key}
 - [ ] T5 Route all outputs through `publish()`
 - [ ] T6 Quarantine and admin review
 - [ ] T7 User evidence view
-- [ ] T8 A7 compliance filter
-- [x] T9 Disclaimer config (the compliance log tab moved to T8: it needs `compliance_events`)
+- [x] T8 A7 compliance filter (filter built; wired into outputs by T5)
+- [x] T9 Disclaimer config (the compliance log tab moved to T8: it needs `compliance_events`; the Compliance tab now exists)
 - [x] T10 Point-in-time snapshot store
 - [x] T11 Hash-chained ledger
 - [ ] T12 Forward-only scoring
@@ -381,3 +381,4 @@ ADMIN   GET  /admin/flags      POST /admin/flags/{key}
 | 2026-09-26 | T11 | `ledger_calls` (Alembic 0003): append-only (triggers on SQLite and Postgres), sha256 hash chain, `BEGIN IMMEDIATE`/table lock for concurrent appends; admin Ledger tab + verify. Accepted first time; reviewer verified 180 concurrent appends and tamper detection at the exact row | PR #25 `s3/T11-ledger` |
 | 2026-09-26 | T3 | `claims` + `committee_narratives` (Alembic 0004): deterministic claims with exact JSON pointers, derived values from a fixed FORMULAS table checked by an `ast` allow-list (no eval); placeholder-only narrative behind `pipeline.claims` (default off); decisions proven identical. 3 rounds incl. a security fix | PR #26 `s3/T3-claims` |
 | 2026-09-26 | T4 | `verification_results` (Alembic 0005): pure A6 checks (traceability, point-in-time, staleness, price, risk, narrative) + runner wired after the claims step; badge counts fully verified claims; 40 gate tests. Finished by the reviewer after the worker hit the free-model daily limit | PR #27 `s3/T4-a6-gate` |
+| 2026-09-26 | T8 | `compliance_events` (Alembic 0006); pure `compliance.check()` + never-raising `record()`; rules as data in `backend/config/compliance_rules.json` (JSON, not the planned rules.yaml: PyYAML is not installed): banned advisory phrases and personalized holding instructions block, performance mentions without `{{ledger:...}}` flag, a missing disclaimer is appended (the only rewrite); admin Compliance tab + `/api/admin/compliance/events` and `/rules`; 69 rule tests (90 in `test_compliance.py`). Filter built; wired into outputs by T5 | branch `s3/T8-compliance` |

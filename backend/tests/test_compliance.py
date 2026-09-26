@@ -181,7 +181,7 @@ def test_performance_mention_with_a_ledger_reference_passes(body, matched):
     "Operating margin rose to 31%.",
     "The stock fell 3% on Tuesday.",
     "The 10-year yield rose 0.2% this week.",
-    "A {{ledger:}} placeholder with no id does not count, but this text makes no claim.",
+    "The stock returned to its 200-day average, 4% below the high.",
 ])
 def test_neutral_numbers_are_not_performance_mentions(body):
     assert hits(run(body), "performance.needs_ledger") == []
