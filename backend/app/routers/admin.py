@@ -16,11 +16,11 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from .. import claims, db, jobs, narrative, orchestration, snapshot_store, verification
-from ..verification import gate
+from ..verification import gate, health
 from ..auth import TokenPayload, require_admin
 from ..models import (
     AgentConfig,
@@ -430,3 +430,27 @@ async def get_verification_summary(date: str) -> Dict[str, Any]:
     """One summary per committee run of that date (Ask and challenger runs excluded)."""
     run_ids = [r["id"] for r in db.list_committee_runs_for_date(date) if not str(r["id"]).startswith(("ask:", "chal:"))]
     return {"date": date, "summaries": [{"run_id": rid, "summary": _summary(_verification_rows(rid))} for rid in run_ids]}
+
+
+# ---- Gate health (S3 T14) ----
+
+from datetime import date as _date, datetime as _datetime, timedelta as _timedelta, timezone as _timezone
+
+GATE_HEALTH_DEFAULT_DAYS = 30
+GATE_HEALTH_MAX_DAYS = 366
+
+
+@router.get("/gate-health")
+async def gate_health(
+    from_: Optional[_date] = Query(None, alias="from"),
+    to: Optional[_date] = Query(None),
+) -> Dict[str, Any]:
+    """Daily claim pass rate, top failing checks and top failing metrics for committee runs dated from..to (inclusive).
+    Defaults to the last 30 days; a range longer than 366 days is refused. Read-only."""
+    end = to or _datetime.now(_timezone.utc).date()
+    start = from_ or end - _timedelta(days=GATE_HEALTH_DEFAULT_DAYS - 1)
+    if start > end:
+        raise HTTPException(status_code=400, detail="'from' must be on or before 'to'")
+    if (end - start).days + 1 > GATE_HEALTH_MAX_DAYS:
+        raise HTTPException(status_code=400, detail=f"Date range is longer than {GATE_HEALTH_MAX_DAYS} days")
+    return health.load(start, end)
