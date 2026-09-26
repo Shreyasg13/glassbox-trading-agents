@@ -334,7 +334,7 @@ ADMIN   GET  /admin/flags      POST /admin/flags/{key}
 - [x] T11 Hash-chained ledger
 - [ ] T12 Forward-only scoring
 - [ ] T13 Weekly discrepancy report
-- [ ] T14 Gate health dashboard
+- [x] T14 Gate health dashboard
 - [ ] T15 Ablation harness
 
 **Dependencies:** T0 → everything. T3 → T4 → T5. T5 → T6, T7, T8. T10 → T4 (the full source-match check needs snapshots; until T10 lands, T4 can use a stub store). T11 → T12 → T15. T13 needs T4 and T8.
@@ -381,3 +381,4 @@ ADMIN   GET  /admin/flags      POST /admin/flags/{key}
 | 2026-09-26 | T11 | `ledger_calls` (Alembic 0003): append-only (triggers on SQLite and Postgres), sha256 hash chain, `BEGIN IMMEDIATE`/table lock for concurrent appends; admin Ledger tab + verify. Accepted first time; reviewer verified 180 concurrent appends and tamper detection at the exact row | PR #25 `s3/T11-ledger` |
 | 2026-09-26 | T3 | `claims` + `committee_narratives` (Alembic 0004): deterministic claims with exact JSON pointers, derived values from a fixed FORMULAS table checked by an `ast` allow-list (no eval); placeholder-only narrative behind `pipeline.claims` (default off); decisions proven identical. 3 rounds incl. a security fix | PR #26 `s3/T3-claims` |
 | 2026-09-26 | T4 | `verification_results` (Alembic 0005): pure A6 checks (traceability, point-in-time, staleness, price, risk, narrative) + runner wired after the claims step; badge counts fully verified claims; 40 gate tests. Finished by the reviewer after the worker hit the free-model daily limit | PR #27 `s3/T4-a6-gate` |
+| 2026-09-26 | T14 | Gate health tab (read-only, no migration): pure aggregates in `verification/health.py` (daily claim pass rate via `gate.summarize`'s rule, runs ok, top five failing checks with most common reason, top five failing metrics joined to `claims`); `GET /api/admin/gate-health?from=&to=` (default 30 days, >366 days -> 400); inline-SVG 0–100% chart; 16 tests | branch `s3/T14-gate-health` |
