@@ -20,9 +20,11 @@ def _fresh_rules_and_disclaimer(monkeypatch):
     monkeypatch.delenv("GLASSBOX_COMPLIANCE_RULES_PATH", raising=False)
     monkeypatch.delenv("GLASSBOX_DISCLAIMER_PATH", raising=False)
     cf.clear_cache()
+    cf._with_tickers.cache_clear()
     disclaimer.clear_cache()
     yield
     cf.clear_cache()
+    cf._with_tickers.cache_clear()
     disclaimer.clear_cache()
 
 

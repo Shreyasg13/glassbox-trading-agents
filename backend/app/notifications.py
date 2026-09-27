@@ -202,11 +202,9 @@ def generate_daily(book=None, users: Optional[List[Dict[str, Any]]] = None, narr
                     content_ref=content_ref,
                     is_html=False,
                 )
-                # In enforce mode, held notifications are not created
-                if not result.allowed:
-                    log.info("Inbox notification for %s held by publish (enforce mode)", row["username"])
-                    continue
-                created += add(row["username"], it["dedupe_key"], it["day"], it["kind"], it["title"], result.text, it["link"], it["severity"])
+                # In enforce mode, store the holding text; in shadow mode, store the (possibly rewritten) text
+                notification_text = result.text if result.allowed else "This update is being reviewed."
+                created += add(row["username"], it["dedupe_key"], it["day"], it["kind"], it["title"], notification_text, it["link"], it["severity"])
         except Exception as exc:  # noqa: BLE001 -- one bad user must not stop the rest
             failed += 1
             log.warning("notifications failed for a user: %s", type(exc).__name__)

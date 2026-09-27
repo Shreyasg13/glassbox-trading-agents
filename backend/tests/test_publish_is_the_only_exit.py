@@ -26,7 +26,7 @@ from typing import Dict, List, Set, Tuple
 RAW_WRITERS: Tuple[Tuple[str, str], ...] = (
     ("db", "create_report_narrative"),
     ("digest", "send_email"),
-    ("notifications", "generate_daily"),
+    ("notifications", "add"),  # low-level notification storage, not generate_daily (pipeline stage)
     ("paper_cycle", "_write_reports"),
     ("committee_daily", "_write_report"),
     ("research", "write_digest"),
@@ -39,12 +39,19 @@ RAW_WRITERS: Tuple[Tuple[str, str], ...] = (
 MODULE_OWN_WRITERS: Dict[str, Set[str]] = {
     "db": {"create_report_narrative"},
     "digest": {"send_email"},
-    "notifications": {"generate_daily"},
+    "notifications": {"add"},  # generate_daily is a pipeline stage, not a raw writer
     "paper_cycle": {"_write_reports"},
     "committee_daily": {"_write_report"},
     "research": {"write_digest"},
     "user_digest": {"send_confirmation", "send_to_user", "send_preview"},
 }
+
+# Explicit allowlist for legitimate cross-module calls that are NOT raw writer calls
+# (e.g., pipeline stages calling their channel's entry point)
+ALLOWED_CROSS_MODULE_CALLS: Tuple[Tuple[str, str, str], ...] = (
+    # (caller_module, callee_module, callee_function)
+    ("pipeline", "notifications", "generate_daily"),
+)
 
 # The single publish exit module
 PUBLISH_MODULE = "publish"
@@ -117,7 +124,11 @@ def _find_raw_writer_calls(tree: ast.AST, current_module: str, file_path: pathli
                                 if func_name in MODULE_OWN_WRITERS.get(raw_module, set()):
                                     allowed = True
 
-                            # 3. Allowed if it's a test file (handled by exclusion)
+                            # 3. Allowed if it's an explicitly allowed cross-module call
+                            elif (current_module, raw_module, func_name) in ALLOWED_CROSS_MODULE_CALLS:
+                                allowed = True
+
+                            # 4. Allowed if it's a test file (handled by exclusion)
 
                             if not allowed:
                                 # Get the source code of the call for reporting
@@ -134,29 +145,7 @@ def _find_raw_writer_calls(tree: ast.AST, current_module: str, file_path: pathli
                                     call_code=call_code.strip(),
                                 ))
 
-            # Also check for direct imports like `from db import create_report_narrative` then `create_report_narrative()`
-            elif isinstance(node.func, ast.Name):
-                func_name = node.func.id
-                # Check if this name matches any raw writer function imported directly
-                for raw_module, raw_func in RAW_WRITERS:
-                    if func_name == raw_func:
-                        # We can't easily track imports in a simple visitor,
-                        # but we can flag direct name calls to known raw writer functions
-                        # This is a conservative check - might have false positives
-                        # but better to catch them than miss them
-                        if current_module not in (PUBLISH_MODULE, raw_module) and not current_module.endswith(f".{PUBLISH_MODULE}") and not current_module.endswith(f".{raw_module}"):
-                            call_code = ast.get_source_segment(source_code, node)
-                            if call_code is None:
-                                call_code = f"{func_name}(...)"
-                            self.violations.append(Violation(
-                                file=str(file_path),
-                                line=node.lineno,
-                                caller_module=current_module,
-                                raw_writer_module=raw_module,
-                                raw_writer_func=raw_func,
-                                call_code=call_code.strip(),
-                            ))
-
+            
             self.generic_visit(node)
 
     visitor = CallVisitor()

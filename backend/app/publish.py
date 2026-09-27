@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from . import compliance, db, flags, ledger
+from . import compliance, db, flags, ledger, verification
 from .verification import gate
 from .migrated_tables import quarantine_items_table
 
@@ -43,11 +43,12 @@ def _iso_now() -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%S.%f+00:00")
 
 
-def _a6_check(run_ids: Tuple[str, ...]) -> Tuple[bool, List[str]]:
+def _a6_check(run_ids: Tuple[str, ...], enforce: bool = False) -> Tuple[bool, List[str]]:
     """Check A6 gate results for each run_id from stored verification results.
-    Returns (all_ok, reasons). Does NOT run the gate - assumes it was already run
-    by the committee daily process. If no results exist, logs a warning and passes
-    in shadow mode (the gate will be run on the next cycle).
+    Returns (all_ok, reasons). If a run has no verification results, calls
+    verification.runner.run_gate once; if still no results -> not ok (reason
+    "no verification results"). In shadow mode, logs warning; in enforce mode,
+    fails closed.
     """
     if not run_ids:
         return True, []
@@ -60,11 +61,32 @@ def _a6_check(run_ids: Tuple[str, ...]) -> Tuple[bool, List[str]]:
                     db.verification_results_table.select().where(db.verification_results_table.c.run_id == run_id)
                 ).fetchall()
             if not rows:
-                # No verification results yet - gate hasn't run for this run
-                # In shadow mode, we allow but log. In enforce mode, we should be conservative.
-                log.warning("A6 check: no verification results for %s (gate may not have run yet)", run_id)
-                # Don't fail - the gate runs as part of committee_daily
-                continue
+                # No verification results yet - try running the gate once
+                log.warning("A6 check: no verification results for %s, running gate", run_id)
+                try:
+                    import asyncio
+                    # We need a book - load it synchronously since we're in a sync context
+                    from . import paper_cycle
+                    book = paper_cycle.load_book()
+                    # Get run_time from the committee run
+                    run_doc = db.get_committee_run(run_id)
+                    run_time = run_doc.get("created_at") if run_doc else None
+                    if run_time:
+                        summary = asyncio.run(verification.runner.run_gate(run_id, run_time, book))
+                    else:
+                        summary = {"ok": False, "badge": "no run_time"}
+                except Exception as gate_exc:  # noqa: BLE001
+                    log.error("A6 gate run failed for %s: %s", run_id, gate_exc)
+                    summary = {"ok": False, "badge": f"gate error: {type(gate_exc).__name__}"}
+                # Check results again after running gate
+                with db.engine.connect() as conn:
+                    rows = conn.execute(
+                        db.verification_results_table.select().where(db.verification_results_table.c.run_id == run_id)
+                    ).fetchall()
+                if not rows:
+                    all_ok = False
+                    reasons.append(f"A6 gate: no verification results for {run_id}")
+                    continue
             # Convert rows to objects with attributes for gate.summarize
             class RowObj:
                 def __init__(self, mapping):
@@ -82,14 +104,21 @@ def _a6_check(run_ids: Tuple[str, ...]) -> Tuple[bool, List[str]]:
     return all_ok, reasons
 
 
-def _a7_check(text: str, channel: str) -> Tuple[str, str, List[Dict[str, Any]]]:
-    """Run the A7 compliance filter. Returns (action, rewritten_text, events)."""
+def _a7_check(text: str, channel: str, run_id: Optional[str], enforce: bool = False) -> Tuple[str, str, List[Dict[str, Any]]]:
+    """Run the A7 compliance filter. Returns (action, rewritten_text, events).
+    On exception: returns "blocked" when enforce is on, "pass" in shadow mode.
+    Still calls record() with an empty result so the run_id is logged.
+    """
     try:
         result = compliance.filter.check(text, channel=channel)
-        compliance.filter.record(result, run_id=None)  # run_id added by caller if needed
+        compliance.filter.record(result, run_id=run_id)
         return result.action, result.text, result.events
     except Exception as exc:  # noqa: BLE001
         log.error("A7 check failed for channel %s: %s", channel, exc)
+        # Record an empty result so the run_id is logged for audit
+        compliance.filter.record(compliance.filter.FilterResult(text=text, action="pass", events=[]), run_id=run_id)
+        if enforce:
+            return "blocked", text, []
         return "pass", text, []
 
 
@@ -244,21 +273,22 @@ def publish(
     reasons: List[str] = []
     final_text = text
 
+    # Check enforcement flag early (needed for fail-closed behavior)
+    enforce = flags.flag("publish.enforce")
+
     # A6 gate (only for committee outputs)
     a6_ok = True
     if committee_output and run_ids:
-        a6_ok, a6_reasons = _a6_check(run_ids)
+        a6_ok, a6_reasons = _a6_check(run_ids, enforce=enforce)
         reasons.extend(a6_reasons)
 
-    # A7 compliance filter
-    a7_action, rewritten_text, a7_events = _a7_check(text, channel)
+    # A7 compliance filter - pass first run_id (or None) and enforce flag
+    first_run_id = run_ids[0] if run_ids else None
+    a7_action, rewritten_text, a7_events = _a7_check(text, channel, first_run_id, enforce=enforce)
     final_text = rewritten_text  # A7 rewrites (disclaimer) always apply
 
     # Determine if held
     held = not a6_ok or a7_action == "blocked"
-
-    # Check enforcement flag
-    enforce = flags.flag("publish.enforce")
 
     if held:
         if enforce:
@@ -304,15 +334,23 @@ def publish(
                     # Get the committee run to extract decision details
                     run_doc = db.get_committee_run(run_id)
                     if run_doc:
-                        cd = run_doc.get("committee_decision") or {}
-                        decision = cd.get("decision")
-                        action = cd.get("action")
-                        votes = cd.get("votes") or {}
+                        # The saved committee doc (_run_doc) stores decision, engine_signal, symbol, votes at top level
+                        decision = run_doc.get("decision")
+                        if decision is None:
+                            # If decision is missing, DO NOT append (log an error) - the ledger is append-only,
+                            # a wrong row can never be fixed
+                            log.error("Ledger append skipped for %s: missing decision field", run_id)
+                            continue
+                        action = run_doc.get("action")
+                        votes = run_doc.get("votes") or {}
                         engine_signal = run_doc.get("engine_signal")
-                        confidence = 0.0
-                        if decision and votes:
+                        # Use the real confidence from the CEO brief (vote share), or compute from votes if missing
+                        ceo = run_doc.get("ceo") or {}
+                        confidence = ceo.get("consensus")
+                        if confidence is None and decision and votes:
                             total = sum(votes.values()) or 1.0
                             confidence = votes.get(decision, 0.0) / total
+                        confidence = round(confidence or 0.0, 3)
                         # Get claim snapshot IDs
                         snapshot_ids: List[str] = []
                         with db.engine.connect() as conn:
@@ -329,7 +367,7 @@ def publish(
                             call_type="committee_decision",
                             payload={
                                 "decision": decision,
-                                "confidence": round(confidence, 3),
+                                "confidence": confidence,
                                 "engine_signal": engine_signal,
                                 "horizon_days": 30,
                                 "a6_ok": a6_ok,
