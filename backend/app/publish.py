@@ -71,7 +71,16 @@ def _a6_check(run_ids: Tuple[str, ...], enforce: bool = False) -> Tuple[bool, Li
                     # Get run_time from the committee run
                     run_doc = db.get_committee_run(run_id)
                     run_time = run_doc.get("created_at") if run_doc else None
-                    if run_time:
+                    try:
+                        asyncio.get_running_loop()
+                        in_loop = True
+                    except RuntimeError:
+                        in_loop = False
+                    if in_loop:
+                        # asyncio.run() cannot run inside an active event loop (run_daily calls publish from it); the gate
+                        # normally ran just before, so a missing result here means it failed: treat it as unverified.
+                        summary = {"ok": False, "badge": "gate not run (called from the event loop)"}
+                    elif run_time:
                         summary = asyncio.run(verification.runner.run_gate(run_id, run_time, book))
                     else:
                         summary = {"ok": False, "badge": "no run_time"}

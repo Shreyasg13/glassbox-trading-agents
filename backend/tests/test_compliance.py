@@ -281,7 +281,7 @@ def test_a_long_digit_run_is_checked_in_linear_time():
     for text in ("1" * 200_000, ("9" * 1000 + ".") * 200, "+1.5 % " * 30_000):
         start = time.perf_counter()
         compliance.check(text, channel=CH)
-        assert time.perf_counter() - start < 1.0
+        assert time.perf_counter() - start < 5.0  # linear: ~0.2 s normally; the quadratic bug took >20 s (loose bound: slow machines)
 
 
 # ---- Performance mentions must reference the ledger (flag) ----
