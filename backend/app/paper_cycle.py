@@ -299,18 +299,32 @@ def _write_reports(accounts: Dict[str, Dict[str, Any]], book: paper.PriceBook, d
         note = _llm_note(text)
         if note:
             text += "\n\nAnalyst note (AI-generated, may be wrong):\n" + note
-        db.create_report_narrative(
-            {
+
+        # Publish through the single exit (paper reports don't have committee run_ids)
+        from . import publish
+        provider_model = "paper-engine" + ("+llm" if note else "")
+        result = publish.publish_simple(
+            channel="paper_report",
+            text=text,
+            content_ref=acct["id"],
+            is_html=False,
+            writer_payload={
                 "id": str(uuid.uuid4()),
                 "date": stamp,
                 "provider": "system",
-                "model": "paper-engine" + ("+llm" if note else ""),
+                "model": provider_model,
                 "title": f"{acct['name']} · paper-trading report",
                 "profile": acct["id"],
                 "narrative": text,
                 "created_at": datetime.now(timezone.utc).isoformat(),
-            }
+            },
         )
+
+        # In enforce mode, held reports are not written
+        if not result.allowed:
+            log.info("Paper report for %s held by publish (enforce mode)", acct["id"])
+            continue
+
         written += 1
     return written
 

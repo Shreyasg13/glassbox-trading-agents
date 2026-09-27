@@ -298,18 +298,31 @@ def _stance_for(book, tickers: Optional[List[str]], cache: Dict[Any, Dict[str, A
 
 def send_to_user(row: Dict[str, Any], book, cfg: Dict[str, Any], cache: Dict[Any, Dict[str, Any]], sender: Optional[Sender] = None, dq: Optional[Dict[str, Any]] = None) -> str:
     """Sends one user's digest; returns the address. Raises on failure (callers record it)."""
+    from . import publish
+
     addr = deliverable_address(row)
     if not addr:
         raise ValueError("no verified address")
     d = build_user_digest(_stance_for(book, row.get("tickers") or None, cache), dq)
     unsub = _link("unsubscribe", row)
-    (sender or digest.send_email)(subject_for(d), render_html(d, unsub), dict(cfg, to=addr), headers=_headers(unsub))
+    html = render_html(d, unsub)
+    content_ref = f"user_digest:{row['id']}:{d.get('as_of', 'unknown')}"
+    result = publish.publish_simple(
+        channel="user_digest",
+        text=html,
+        content_ref=content_ref,
+        is_html=True,
+    )
+    # In enforce mode, held emails are not sent
+    if not result.allowed:
+        raise ValueError("held by publish (enforce mode)")
+    (sender or digest.send_email)(subject_for(d), result.text, dict(cfg, to=addr), headers=_headers(unsub))
     return addr
 
 
 def send_preview(row: Dict[str, Any], book=None, sender: Optional[Sender] = None, now: Optional[datetime] = None) -> Dict[str, Any]:
     """The user asked for one right now (needs a verified address; rate-limited)."""
-    from . import flags
+    from . import flags, publish
 
     if not flags.flag("output.email"):
         return {"ok": False, "detail": "email is switched off right now"}
@@ -330,6 +343,12 @@ def send_preview(row: Dict[str, Any], book=None, sender: Optional[Sender] = None
 
             book = paper_cycle.load_book()
         addr = send_to_user(forced, book, cfg, {}, sender)
+    except ValueError as exc:
+        if "held by publish" in str(exc):
+            log.info("User digest preview for %s held by publish (enforce mode)", row.get("id"))
+            return {"ok": False, "detail": "held by publish (enforce mode)"}
+        log.warning("could not send a digest preview: %s", type(exc).__name__)
+        return {"ok": False, "detail": f"could not send: {type(exc).__name__}"}
     except Exception as exc:  # noqa: BLE001
         log.warning("could not send a digest preview: %s", type(exc).__name__)
         return {"ok": False, "detail": f"could not send: {type(exc).__name__}"}

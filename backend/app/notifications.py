@@ -179,6 +179,9 @@ def generate_daily(book=None, users: Optional[List[Dict[str, Any]]] = None, narr
     except Exception as exc:  # noqa: BLE001
         log.warning("notifications: could not load data: %s", exc)
         return {"ok": False, "created": 0, "detail": f"build failed: {type(exc).__name__}: {exc}"}
+
+    from . import publish
+
     cache: Dict[Any, Dict[str, Any]] = {}
     created = failed = 0
     for row in users:
@@ -190,7 +193,20 @@ def generate_daily(book=None, users: Optional[List[Dict[str, Any]]] = None, narr
             if key not in cache:
                 cache[key] = stance_fn(book, list(key) or None)
             for it in daily_items(cache[key], "your watchlist" if tickers else "the tracked stocks") + report_items(row["username"], narratives):
-                created += add(row["username"], it["dedupe_key"], it["day"], it["kind"], it["title"], it["body"], it["link"], it["severity"])
+                # Publish the notification content through the single exit
+                content = f"{it['title']}\n\n{it['body']}"
+                content_ref = f"inbox:{row['username']}:{it['dedupe_key']}"
+                result = publish.publish_simple(
+                    channel="inbox",
+                    text=content,
+                    content_ref=content_ref,
+                    is_html=False,
+                )
+                # In enforce mode, held notifications are not created
+                if not result.allowed:
+                    log.info("Inbox notification for %s held by publish (enforce mode)", row["username"])
+                    continue
+                created += add(row["username"], it["dedupe_key"], it["day"], it["kind"], it["title"], result.text, it["link"], it["severity"])
         except Exception as exc:  # noqa: BLE001 -- one bad user must not stop the rest
             failed += 1
             log.warning("notifications failed for a user: %s", type(exc).__name__)

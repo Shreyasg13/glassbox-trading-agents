@@ -115,6 +115,24 @@ compliance_events_table = Table(
     Index("ix_compliance_events_run_id", "run_id"),
 )
 
+quarantine_items_table = Table(
+    "quarantine_items",
+    migrated_metadata,
+    Column("id", String, primary_key=True),
+    Column("channel", String, nullable=False),
+    Column("run_id", String, nullable=True),
+    Column("content_ref", String, nullable=False),
+    Column("stage", String, nullable=False),  # A6 | A7
+    Column("status", String, nullable=False),  # pending | approved | rejected | shadow
+    Column("reasons_json", Text, nullable=False, default="[]"),
+    Column("created_at", String, nullable=False),
+    Column("reviewer_id", String, nullable=True),
+    Column("review_note", String, nullable=True),
+    Column("reviewed_at", String, nullable=True),
+    Index("ix_quarantine_items_status", "status"),
+    Index("ix_quarantine_items_created_at", "created_at"),
+)
+
 
 def include_object(obj, name, type_, reflected, compare_to):
     """Autogenerate fence (used by migrations/env.py): it may only see the migration-managed tables above, so it can never

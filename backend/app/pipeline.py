@@ -243,9 +243,21 @@ def default_stages(target: str) -> Dict[str, Callable[[], Any]]:
         return digest.run()
 
     def notifications_stage() -> Any:
-        from . import notifications
+        from . import publish
 
-        return notifications.generate_daily()
+        # Publish through the single exit (notifications don't have committee run_ids)
+        # The actual notification generation happens in the channel writer inside publish()
+        result = publish.publish_simple(
+            channel="notification",
+            text="Daily notifications generated",
+            content_ref=f"daily:{date.fromisoformat(target).isoformat()}",
+            is_html=False,
+            writer_payload={},  # generate_daily fetches its own data
+        )
+        if not result.allowed:
+            log.info("Notifications held by publish (enforce mode)")
+            return {"ok": True, "held": True}
+        return {"ok": True}
 
     def user_digests() -> Any:
         from . import user_digest

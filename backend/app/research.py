@@ -219,8 +219,15 @@ def write_digest(digest: Dict[str, Any]) -> bool:
     key = f"research:{digest['date']}"
     if any(n.get("profile") == key for n in db.list_report_narratives()):
         return False
-    db.create_report_narrative(
-        {
+
+    # Publish through the single exit (research digest doesn't have committee run_ids)
+    from . import publish
+    result = publish.publish_simple(
+        channel="research_digest",
+        text=digest["text"],
+        content_ref=key,
+        is_html=False,
+        writer_payload={
             "id": str(uuid.uuid4()),
             "date": digest["date"].replace("-", ""),
             "provider": "system",
@@ -229,8 +236,14 @@ def write_digest(digest: Dict[str, Any]) -> bool:
             "profile": key,
             "narrative": digest["text"],
             "created_at": datetime.now(timezone.utc).isoformat(),
-        }
+        },
     )
+
+    # In enforce mode, held digests are not written
+    if not result.allowed:
+        log.info("Research digest for %s held by publish (enforce mode)", digest["date"])
+        return False
+
     return True
 
 

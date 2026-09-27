@@ -38,6 +38,7 @@ FLAGS: Dict[str, Tuple[bool, str]] = {
     "output.speech": (False, "Voice narration (text-to-speech). Off by default; the site falls back to the browser's own voice."),
     "output.assistant": (True, "The portfolio assistant's answers (Ask). Off: the assistant is unavailable; signals for a date still work."),
     "output.user_reports": (True, "Reports a user generates for themselves (Run my report). Off: unavailable."),
+    "publish.enforce": (False, "Hold outputs that fail verification or compliance. Off = shadow mode: checks are recorded, nothing is held."),
 }
 
 _cache: Dict[str, Tuple[float, bool]] = {}

@@ -28,7 +28,9 @@ from app.routers import me, ws
 
 EL_ID = "pqHfZKP75CvOlQylNhV4"  # shape of a real ElevenLabs voice id (20 alnum)
 EL_URL = tts.ELEVENLABS_URL_TMPL.format(voice_id=EL_ID)
-GOOD_BODY = {"text": "Apple, ticker AAPL, score 8.4.", "elevenlabs_voice_id": EL_ID, "kokoro_voice_id": "am_michael"}
+# Use a whitelisted static line (exact match required after whitespace normalization)
+GOOD_TEXT = tts.ALLOWED_STATIC_LINES[0]
+GOOD_BODY = {"text": GOOD_TEXT, "elevenlabs_voice_id": EL_ID, "kokoro_voice_id": "am_michael"}
 
 
 @pytest.fixture(autouse=True)
@@ -385,7 +387,9 @@ def test_tts_cache_hits_do_not_consume_the_rate_limit(client, monkeypatch):
     assert client.post("/api/tts", json=GOOD_BODY).status_code == 200  # miss: uses the 1 allowed
     for _ in range(5):
         assert client.post("/api/tts", json=GOOD_BODY).status_code == 200  # hits: free
-    other = client.post("/api/tts", json={**GOOD_BODY, "text": "A different line entirely."})
+    # Use a different whitelisted line to test rate limiting on cache miss
+    other_text = tts.ALLOWED_STATIC_LINES[1] if len(tts.ALLOWED_STATIC_LINES) > 1 else GOOD_TEXT
+    other = client.post("/api/tts", json={**GOOD_BODY, "text": other_text})
     assert other.status_code == 429 and "Retry-After" in other.headers
 
 
