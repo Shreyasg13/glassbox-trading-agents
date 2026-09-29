@@ -7,7 +7,7 @@ from alembic.runtime.migration import MigrationContext
 from sqlalchemy import create_engine, inspect
 
 from app import db, migrate
-from app.migrated_tables import include_object, migrated_metadata
+from app.migrated_tables import include_object, migrated_metadata, call_outcomes_table
 
 
 @pytest.fixture
@@ -35,9 +35,10 @@ def test_upgrade_creates_the_table_and_records_the_revision(engine):
     assert "verification_results" not in tables(engine)
     assert "compliance_events" not in tables(engine)
     assert "quarantine_items" not in tables(engine)
+    assert "call_outcomes" not in tables(engine)
     with engine.begin() as conn:
         migrate.upgrade(conn)
-    assert "feature_flags" in tables(engine) and "source_snapshots" in tables(engine) and "ledger_calls" in tables(engine) and "claims" in tables(engine) and "committee_narratives" in tables(engine) and "verification_results" in tables(engine) and "compliance_events" in tables(engine) and "quarantine_items" in tables(engine) and revision(engine) == "0007"
+    assert "feature_flags" in tables(engine) and "source_snapshots" in tables(engine) and "ledger_calls" in tables(engine) and "claims" in tables(engine) and "committee_narratives" in tables(engine) and "verification_results" in tables(engine) and "compliance_events" in tables(engine) and "quarantine_items" in tables(engine) and "call_outcomes" in tables(engine) and revision(engine) == "0008"
     cols = {c["name"] for c in inspect(engine).get_columns("feature_flags")}
     assert cols == {"key", "enabled", "updated_by", "updated_at"}
     snap_cols = {c["name"] for c in inspect(engine).get_columns("source_snapshots")}
@@ -72,7 +73,30 @@ def test_upgrading_twice_is_a_no_op(engine):
     for _ in range(2):
         with engine.begin() as conn:
             migrate.upgrade(conn)
+    assert revision(engine) == "0008"
+
+
+def test_0008_upgrade_creates_call_outcomes_table(engine):
+    with engine.begin() as conn:
+        migrate.upgrade(conn)
+    assert revision(engine) == "0008"
+    cols = {c["name"] for c in inspect(engine).get_columns("call_outcomes")}
+    expected = {"call_id", "horizon", "evaluated_at", "outcome_json", "score"}
+    assert cols == expected
+    # Composite primary key check
+    pk = inspect(engine).get_pk_constraint("call_outcomes")
+    assert set(pk["constrained_columns"]) == {"call_id", "horizon"}
+
+
+def test_0008_downgrade_drops_call_outcomes_table(engine):
+    with engine.begin() as conn:
+        migrate.upgrade(conn)
+    with engine.begin() as conn:
+        migrate.downgrade("0007", conn)
     assert revision(engine) == "0007"
+    assert "call_outcomes" not in tables(engine)
+    # Other tables remain
+    assert "quarantine_items" in tables(engine)
 
 
 def test_0006_downgrades_to_0005_dropping_only_compliance_events(engine):
@@ -87,7 +111,7 @@ def test_0006_downgrades_to_0005_dropping_only_compliance_events(engine):
     assert "compliance_events" not in tables(engine) and "verification_results" in tables(engine)
     with engine.begin() as conn:
         migrate.upgrade(conn)
-    assert revision(engine) == "0007"
+    assert revision(engine) == "0008"
     with engine.connect() as c:
         assert c.execute(migrated_metadata.tables["compliance_events"].select()).fetchall() == []
 
@@ -134,10 +158,13 @@ def test_autogenerate_never_proposes_dropping_an_older_table(engine):
     assert "committee_narratives" in migrated_metadata.tables
     assert "verification_results" in migrated_metadata.tables
     assert "compliance_events" in migrated_metadata.tables
+    assert "quarantine_items" in migrated_metadata.tables
+    assert "call_outcomes" in migrated_metadata.tables
 
 
 def test_the_migrated_tables_are_not_created_by_create_all():
     assert "feature_flags" not in db.metadata.tables  # otherwise create_all and Alembic would fight over it
+    assert "call_outcomes" not in db.metadata.tables
 
 
 def test_a_failing_migration_reports_failure_without_raising(monkeypatch, capsys):
