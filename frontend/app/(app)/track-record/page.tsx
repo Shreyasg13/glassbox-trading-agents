@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ApiError, apiFetch } from "@/lib/api";
+import { ApiError, apiFetch, fetchLedgerTrackRecord } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import type { TrackRecord } from "@/lib/types";
+import type { TrackRecord, LedgerTrackRecord, LedgerMetrics, LedgerScoredCall } from "@/lib/types";
 import { MultiCurveChart } from "@/components/charts/MultiCurveChart";
 import { Section, Th, WrapperToggle, inWrapper, pct, plainPct, tone, type Wrapper } from "@/components/admin/strategy/shared";
 
@@ -33,6 +33,13 @@ export default function TrackRecordPage() {
   const q = useQuery({
     queryKey: ["track-record"],
     queryFn: () => apiFetch<TrackRecord>("/api/me/track-record", { token: token ?? undefined }),
+    enabled: !!token,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+  const ledgerQ = useQuery({
+    queryKey: ["ledger-track-record"],
+    queryFn: () => fetchLedgerTrackRecord(token ?? undefined),
     enabled: !!token,
     staleTime: 5 * 60 * 1000,
     retry: false,
@@ -154,6 +161,127 @@ export default function TrackRecordPage() {
           </li>
         </ul>
       </Section>
+
+      {/* Ledger-scored calls section (S3 T12d) */}
+      <section aria-labelledby="ledger-scored-heading">
+        <h2 id="ledger-scored-heading" className="text-[16px] font-semibold text-t1 mb-sp3">Ledger-scored calls</h2>
+        {ledgerQ.isPending && <p className="py-sp6 text-center text-[13px] text-t3">Loading ledger scores…</p>}
+        {ledgerQ.isError && (
+          <p className="py-sp6 text-center text-[13px] text-red">
+            {ledgerQ.error instanceof ApiError ? ledgerQ.error.message : "Could not load ledger-scored calls"}
+          </p>
+        )}
+        {ledgerQ.data && (
+          <>
+            <p className="mb-sp4 text-[12px] text-t3 leading-snug">
+              {ledgerQ.data.ledger_calls} ledger call{ledgerQ.data.ledger_calls === 1 ? "" : "s"} recorded so far.
+              {ledgerQ.data.scored_calls.length === 0 && " None have reached their outcome window yet."}
+              <br />
+              <span className="text-t3">{ledgerQ.data.pre_ledger_note}</span>
+            </p>
+
+            {ledgerQ.data.scored_calls.length > 0 && (
+              <>
+                <div className="grid gap-sp3 mb-sp4 sm:grid-cols-3">
+                  {([1, 5, 20] as const).map((h) => {
+                    const m: LedgerMetrics = ledgerQ.data.metrics[String(h)];
+                    const count = m.count;
+                    const showData = count > 0;
+                    return (
+                      <div key={h} className="rounded-r2 border border-border bg-bg2/40 p-sp3">
+                        <div className="text-[10px] font-bold uppercase tracking-wide text-t3 mb-1">{h}-day horizon</div>
+                        <dl className="grid grid-cols-2 gap-x-sp3 gap-y-1 text-[12px]">
+                          <dt className="text-t3">Calls</dt>
+                          <dd className="font-mono font-semibold text-t1 text-right">{count}</dd>
+                          <dt className="text-t3">Hit rate</dt>
+                          <dd className="font-mono font-semibold text-t1 text-right">
+                            {showData && m.hit_rate !== null ? `${(m.hit_rate * 100).toFixed(1)}%` : "too few calls"}
+                          </dd>
+                          <dt className="text-t3">Mean excess</dt>
+                          <dd className="font-mono font-semibold text-t1 text-right">
+                            {showData && m.mean_excess_return !== null ? `${(m.mean_excess_return * 100).toFixed(2)}%` : "too few calls"}
+                          </dd>
+                          <dt className="text-t3">Rank IC</dt>
+                          <dd className="font-mono font-semibold text-t1 text-right">
+                            {showData && m.rank_ic !== null ? m.rank_ic.toFixed(3) : "too few calls"}
+                          </dd>
+                        </dl>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[720px]">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <Th>Date</Th>
+                        <Th>Symbol</Th>
+                        <Th>Call</Th>
+                        <Th>Recorded at</Th>
+                        <Th right>Horizon</Th>
+                        <Th right>Forward return</Th>
+                        <Th right>Excess return</Th>
+                        <Th right>Right?</Th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ledgerQ.data.scored_calls
+                        .slice()
+                        .sort((a, b) => (a.recorded_at > b.recorded_at ? -1 : 1))
+                        .map((call: LedgerScoredCall) => (
+                          <tr key={call.call_id} className="border-t border-border text-[12px]">
+                            <td className="mono px-sp3 py-sp2">{call.entry_date ?? "—"}</td>
+                            <td className="px-sp3 py-sp2 font-mono font-semibold text-t1">{call.symbol}</td>
+                            <td className="px-sp3 py-sp2">
+                              <span
+                                className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                  call.decision === "BUY"
+                                    ? "bg-green/20 text-green"
+                                    : call.decision === "SELL"
+                                    ? "bg-red/20 text-red"
+                                    : "bg-amber/20 text-amber"
+                                }`}
+                              >
+                                {call.decision}
+                              </span>
+                            </td>
+                            <td className="mono px-sp3 py-sp2 text-t2">
+                              {call.recorded_at}
+                              <span className="block text-t3">{call.recorded_label}</span>
+                            </td>
+                            <td className="mono px-sp3 py-sp2 text-right text-t2">{call.horizon}d</td>
+                            <td className="mono px-sp3 py-sp2 text-right font-semibold">
+                              {call.forward_return !== null ? `${(call.forward_return * 100).toFixed(2)}%` : "—"}
+                            </td>
+                            <td className="mono px-sp3 py-sp2 text-right font-semibold">
+                              {call.excess_return !== null
+                                ? `${(call.excess_return * 100).toFixed(2)}%`
+                                : "—"}
+                            </td>
+                            <td className="mono px-sp3 py-sp2 text-right font-semibold">
+                              {call.right ? (
+                                <span className="text-green">✓</span>
+                              ) : (
+                                <span className="text-red">✗</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+
+            {ledgerQ.data.scored_calls.length === 0 && (
+              <div className="rounded-r2 border border-border bg-bg2/40 p-sp6 text-center text-[13px] text-t3">
+                No scored calls yet. Calls appear here once their outcome window has closed.
+              </div>
+            )}
+          </>
+        )}
+      </section>
     </div>
   );
 }
