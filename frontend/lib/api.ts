@@ -1,7 +1,7 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8000/ws/signals";
 
-import type { ComplianceAction, ComplianceEvent, ComplianceRule, GateHealth, LedgerRow, LedgerVerify } from "@/lib/types";
+import type { ComplianceAction, ComplianceEvent, ComplianceRule, GateHealth, LedgerRow, LedgerVerify, LedgerTrackRecord } from "@/lib/types";
 
 export function apiUrl(path: string): string {
   return `${API_URL}${path}`;
@@ -71,6 +71,12 @@ export async function fetchLedger(
 
 export async function verifyLedger(token: string | undefined): Promise<LedgerVerify> {
   return apiFetch<LedgerVerify>(`/api/admin/ledger/verify`, { token, method: "POST" });
+}
+
+// ---- Ledger Track Record API (S3 T12d) ----
+
+export async function fetchLedgerTrackRecord(token: string | undefined): Promise<LedgerTrackRecord> {
+  return apiFetch<LedgerTrackRecord>(`/api/me/ledger-track-record`, { token });
 }
 
 // ---- Compliance API ----

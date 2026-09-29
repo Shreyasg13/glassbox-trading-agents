@@ -7,6 +7,11 @@ into a dated release with a git tag.
 ## [Unreleased]
 
 ### Added
+- **Ledger track record page section** (T12d). The user track-record page now includes a "Ledger-scored calls" section
+  that displays forward-only scored calls from the append-only ledger: per-horizon metric cards (1, 5, 20 days) with
+  count, hit rate, mean excess return, and rank IC; a detailed table with date, symbol, call, recorded-at (labelled
+  "recorded before outcome"), horizon, forward return, excess return, and right/wrong; and an empty state when no
+  calls have been scored yet. Works at 400px width with horizontal table scrolling.
 - **Single publish exit** (`app/publish.py`) (T5). Every piece of system-generated text that reaches a user goes through
   `publish()` (or `publish_simple()` for non-committee outputs). It runs the A6 gate (for committee outputs) and the A7
   compliance filter, records the verdict, and either allows or holds the text depending on the `publish.enforce` flag.

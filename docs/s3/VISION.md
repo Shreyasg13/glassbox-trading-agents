@@ -10,6 +10,7 @@ Live progress page: https://claude.ai/artifact/CRzwYWDBvCC4UzdQYng6aA
 1. **Go live with S3 part 1** (T0–T4, T9–T11): the point-in-time record starts. Production is Neon Postgres: test migrations
    on a Neon branch and back up with a branch before deploying.
 2. **Finish S3**: T5, T12, T6, T8, T7, T13, T14, T15. Exit: 4 weekly discrepancy reports in a row, badge on every report.
+   T12 supplies the paper's forward-only results on the user track-record page and the public summary endpoint.
 3. **Recognition**: arXiv paper on claim-level provenance + point-in-time data + hash-chained call records; publish
    LiveTradeBench results; ask to join Agent Market Arena; score on InvestorBench; open-source `proofbook` CLI (pip).
 4. **Retail adoption**: public track-record page checkable against the ledger; free tier; broker and platform partnerships.
