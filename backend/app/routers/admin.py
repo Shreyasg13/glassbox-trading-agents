@@ -14,14 +14,15 @@ data.py/monte_carlo.py/tts.py sidesteps that.
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-from .. import claims, compliance, db, jobs, narrative, orchestration, snapshot_store, verification
+from .. import claims, compliance, db, jobs, narrative, orchestration, publish, snapshot_store, verification
 from ..verification import gate, health
 from ..auth import TokenPayload, require_admin
 from ..models import (
@@ -540,6 +541,7 @@ class QuarantineItem(BaseModel):
     channel: str
     run_id: Optional[str] = None
     content_ref: str
+    stage: str  # A6 | A7
     status: str  # pending | approved | rejected | shadow
     reason: Optional[str] = None
     created_at: str
@@ -552,6 +554,43 @@ class QuarantineAction(BaseModel):
     reason: Optional[str] = None
 
 
+def _iso_now() -> str:
+    """Same timestamp format the quarantine_items table is written in elsewhere (publish.py's _iso_now)."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f+00:00")
+
+
+def _join_reasons(reasons_json: str) -> Optional[str]:
+    """reasons_json is the JSON list publish.py's _create_quarantine_item stored; shown as one string."""
+    try:
+        reasons = json.loads(reasons_json) if reasons_json else []
+    except (TypeError, ValueError):
+        return None
+    return "; ".join(reasons) if reasons else None
+
+
+def _quarantine_row_or_404(item_id: str):
+    with db.engine.connect() as conn:
+        row = conn.execute(select(quarantine_items_table).where(quarantine_items_table.c.id == item_id)).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Quarantine item not found")
+    return row
+
+
+def _quarantine_item_response(row) -> QuarantineItem:
+    return QuarantineItem(
+        id=row.id,
+        channel=row.channel,
+        run_id=row.run_id,
+        content_ref=row.content_ref,
+        stage=row.stage,
+        status=row.status,
+        reason=_join_reasons(row.reasons_json),
+        created_at=row.created_at,
+        decided_at=row.reviewed_at,
+        decided_by=row.reviewer_id,
+    )
+
+
 @router.get("/quarantine", response_model=List[QuarantineItem])
 async def list_quarantine(status: Optional[str] = None, limit: int = 100, offset: int = 0) -> List[QuarantineItem]:
     """List quarantine items, optionally filtered by status. Viewer gets 403; admin gets 200."""
@@ -561,20 +600,7 @@ async def list_quarantine(status: Optional[str] = None, limit: int = 100, offset
         stmt = stmt.where(quarantine_items_table.c.status == status)
     with db.engine.connect() as conn:
         rows = conn.execute(stmt).fetchall()
-    return [
-        QuarantineItem(
-            id=r.id,
-            channel=r.channel,
-            run_id=r.run_id,
-            content_ref=r.content_ref,
-            status=r.status,
-            reason=r.reason,
-            created_at=r.created_at,
-            decided_at=r.decided_at,
-            decided_by=r.decided_by,
-        )
-        for r in rows
-    ]
+    return [_quarantine_item_response(r) for r in rows]
 
 
 @router.post("/quarantine/{item_id}/action", status_code=204)
@@ -583,18 +609,69 @@ async def action_quarantine(item_id: str, body: QuarantineAction, user: TokenPay
     if body.action not in ("approve", "reject"):
         raise HTTPException(status_code=400, detail="action must be 'approve' or 'reject'")
     new_status = "approved" if body.action == "approve" else "rejected"
-    with db.engine.connect() as conn:
-        # Check item exists
-        item = conn.execute(
-            select(quarantine_items_table).where(quarantine_items_table.c.id == item_id)
-        ).first()
-        if item is None:
-            raise HTTPException(status_code=404, detail="Quarantine item not found")
-        # Update
+    _quarantine_row_or_404(item_id)
+    with db.engine.begin() as conn:
         conn.execute(
             quarantine_items_table.update()
             .where(quarantine_items_table.c.id == item_id)
-            .values(status=new_status, decided_at=datetime.now(timezone.utc).isoformat(), decided_by=user.sub, reason=body.reason)
+            .values(status=new_status, reviewed_at=_iso_now(), reviewer_id=user.sub, review_note=body.reason)
         )
-        conn.commit()
     db.log_audit(user.sub, f"quarantine.{body.action}", "quarantine_item", item_id, {"reason": body.reason})
+
+
+# ---- Quarantine review (S3 T6): approve re-runs the gates, override needs a reason ----
+
+
+class QuarantineApprove(BaseModel):
+    override_reason: Optional[str] = None
+
+    @field_validator("override_reason")
+    @classmethod
+    def _override_reason_min_length(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and len(v.strip()) < 10:
+            raise ValueError("override_reason must be at least 10 characters")
+        return v
+
+
+class QuarantineReject(BaseModel):
+    note: str = Field(min_length=1)
+
+
+@router.post("/quarantine/{item_id}/approve", response_model=QuarantineItem)
+async def approve_quarantine(item_id: str, body: QuarantineApprove, user: TokenPayload = Depends(require_admin)):
+    """Re-run A6+A7 for the item's run/content. Passing -> approved. Still failing -> 409 with the
+    failing checks, unless override_reason (>= 10 characters) is given, in which case it is approved
+    anyway and the reason + reviewer are stored."""
+    row = _quarantine_row_or_404(item_id)
+    gates_ok, failing_checks = publish.recheck_quarantine_item(dict(row._mapping))
+    if not gates_ok and not body.override_reason:
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "quarantine gates still fail", "failing_checks": failing_checks},
+        )
+    review_note = body.override_reason if not gates_ok else None
+    with db.engine.begin() as conn:
+        conn.execute(
+            quarantine_items_table.update()
+            .where(quarantine_items_table.c.id == item_id)
+            .values(status="approved", reviewed_at=_iso_now(), reviewer_id=user.sub, review_note=review_note)
+        )
+    db.log_audit(
+        user.sub, "quarantine.approve", "quarantine_item", item_id,
+        {"override_reason": review_note, "gates_ok": gates_ok, "failing_checks": failing_checks},
+    )
+    return _quarantine_item_response(_quarantine_row_or_404(item_id))
+
+
+@router.post("/quarantine/{item_id}/reject", response_model=QuarantineItem)
+async def reject_quarantine(item_id: str, body: QuarantineReject, user: TokenPayload = Depends(require_admin)):
+    """Reject a quarantine item. A note is required."""
+    _quarantine_row_or_404(item_id)
+    with db.engine.begin() as conn:
+        conn.execute(
+            quarantine_items_table.update()
+            .where(quarantine_items_table.c.id == item_id)
+            .values(status="rejected", reviewed_at=_iso_now(), reviewer_id=user.sub, review_note=body.note)
+        )
+    db.log_audit(user.sub, "quarantine.reject", "quarantine_item", item_id, {"note": body.note})
+    return _quarantine_item_response(_quarantine_row_or_404(item_id))
