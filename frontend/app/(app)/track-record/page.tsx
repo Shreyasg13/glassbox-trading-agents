@@ -246,7 +246,10 @@ export default function TrackRecordPage() {
                                 {call.decision}
                               </span>
                             </td>
-                            <td className="mono px-sp3 py-sp2 text-t2">{call.recorded_at}</td>
+                            <td className="mono px-sp3 py-sp2 text-t2">
+                              {call.recorded_at}
+                              <span className="block text-t3">{call.recorded_label}</span>
+                            </td>
                             <td className="mono px-sp3 py-sp2 text-right text-t2">{call.horizon}d</td>
                             <td className="mono px-sp3 py-sp2 text-right font-semibold">
                               {call.forward_return !== null ? `${(call.forward_return * 100).toFixed(2)}%` : "—"}
