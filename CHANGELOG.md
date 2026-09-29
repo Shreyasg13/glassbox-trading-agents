@@ -57,6 +57,17 @@ into a dated release with a git tag.
   reason, and the five claim metrics that fail most often. Ask and challenger runs are not counted. Read-only:
   `GET /api/admin/gate-health?from=&to=` (admin only) aggregates the existing `verification_results` and `claims` tables;
   no migration.
+- **User evidence view, "Show my work"** (T7). `GET /api/reports/narratives/{id}/evidence` (`require_role("user")`, 401
+  signed out) returns `{verified, claims: [{claim_id, label, value, unit, source, field_path, as_of, passed}]}` for the
+  narrative's committee run: `verified` is true only if every claim passed the A6 gate. A quarantined narrative 404s
+  exactly like the report itself (same content_ref check as `GET /api/reports/narratives/{id}`), and the kill switch
+  (`output.reports`) hides it the same way too. Nothing internal ever leaves this endpoint: no failure reason, check
+  name, raw snapshot payload or quarantine detail, only the fields above (`response_model` enforces this even if a
+  future edit adds one by mistake). Source names are shown with a friendly label (`sec_facts` -> "SEC", `bls` -> "BLS",
+  etc.) instead of the internal snake_case name. Frontend: `EvidencePanel.tsx` adds a "Verified" / "Not fully verified"
+  badge and an expandable "Show my work" list to the report view (`app/(app)/reports/[id]/page.tsx`); clicking a claim
+  highlights it and shows its source, field path and as-of time. The panel is USER-role only and renders nothing when
+  signed out, since the report page itself stays public.
 
 ### Changed
 - Removed the "For Advisors" section and its nav link. It pitched paid advisor features (white-label, multi-client,
@@ -78,6 +89,10 @@ into a dated release with a git tag.
 - A performance mention passes when the text carries any `{{ledger:...}}` reference, not one next to each mention; it is
   flagged, not blocked, until T12 renders ledger references. The phrase lists are English only and deliberately short to
   avoid false positives on research wording, so they will not catch every paraphrase.
+- The evidence endpoint (T7) reads an optional `run_id` key on the stored report narrative to find its claims; nothing
+  in `committee_daily.py`'s daily digest report sets that key yet (that report covers a whole day's decisions, not one
+  run, and wiring it up touches a file outside T7's scope), so today's committee report narratives show no claims (an
+  empty, vacuously-"verified" evidence panel) until a future task adds the linkage.
 
 ## [s3-part1] — 2026-09-26 — S3 "Trustworthy MVP", part 1 (T0–T4, T9, T10, T11)
 
