@@ -134,7 +134,7 @@ Total routes: 113 (public: 25, user: 21, admin: 63, undeclared: 4)
 
 | Method | Path | Summary |
 |--------|------|---------|
-| GET | /docs |  |
-| GET | /docs/oauth2-redirect |  |
-| GET | /openapi.json |  |
-| GET | /redoc |  |
+| GET | /api/docs |  |
+| GET | /api/docs/oauth2-redirect |  |
+| GET | /api/openapi.json |  |
+| GET | /api/redoc |  |

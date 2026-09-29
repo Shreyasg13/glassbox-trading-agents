@@ -17,7 +17,7 @@ def test_docs_api_md_is_current():
     docs_path = Path(__file__).resolve().parents[2] / "docs" / "API.md"
     assert docs_path.exists(), "docs/API.md does not exist"
     existing = docs_path.read_text(encoding="utf-8").rstrip("\n")
-    assert current == existing, "docs/API.md is out of date; run python -m app.scripts.api_docs"
+    assert existing == current, "docs/API.md is out of date; run `python -m app.scripts.api_docs`"
 
 
 def test_every_route_appears_exactly_once():
@@ -29,7 +29,7 @@ def test_every_route_appears_exactly_once():
     for key in roles:
         method, path = key.split(" ", 1)
         # Count occurrences of this method+path combination in table rows
-        # Table rows look like: | GET | /api/x | ... |
+        # Table rows look like: | GET | /api/x | ...
         row_pattern = f"| {method} | {path} |"
         count = content.count(row_pattern)
         assert count == 1, f"Route {key} appears {count} times in docs (expected 1)"
@@ -58,9 +58,9 @@ def test_grouping_admin_and_undeclared():
     assert admin_section_start < admin_row_pos < undeclared_section_start, \
         f"Admin route appears in wrong section (pos {admin_row_pos}, admin section at {admin_section_start}, undeclared at {undeclared_section_start})"
 
-    # An undeclared route should appear in undeclared section
-    undeclared_route_key = "GET /openapi.json"  # FastAPI built-in, stays undeclared until /api/docs moves
-    undeclared_row = f"| GET | /openapi.json |"
+    # An undeclared route should appear in undeclared section (updated for /api/docs prefix)
+    undeclared_route_key = "GET /api/openapi.json"  # FastAPI built-in, now under /api/ prefix
+    undeclared_row = f"| GET | /api/openapi.json |"
     undeclared_row_pos = content.find(undeclared_row)
     assert undeclared_row_pos != -1, f"Undeclared route {undeclared_route_key} not found in docs"
     assert undeclared_row_pos > undeclared_section_start, \
