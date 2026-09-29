@@ -133,6 +133,16 @@ quarantine_items_table = Table(
     Index("ix_quarantine_items_created_at", "created_at"),
 )
 
+call_outcomes_table = Table(
+    "call_outcomes",
+    migrated_metadata,
+    Column("call_id", String, primary_key=True),
+    Column("horizon", Integer, primary_key=True),
+    Column("evaluated_at", String, nullable=False),
+    Column("outcome_json", Text, nullable=False),
+    Column("score", Float, nullable=False),
+)
+
 
 def include_object(obj, name, type_, reflected, compare_to):
     """Autogenerate fence (used by migrations/env.py): it may only see the migration-managed tables above, so it can never
