@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, Request, Response, Depends
 from pydantic import BaseModel, Field
 
 from .. import flags, tts
+from ..auth import require_role
 from ..rate_limit import check_tts_limits
 
 router = APIRouter(prefix="/api", tags=["tts"])
@@ -43,7 +44,7 @@ def _is_allowed_text(text: str) -> bool:
     return False
 
 
-@router.post("/tts")
+@router.post("/tts", dependencies=[Depends(require_role("public"))])
 async def api_tts(body: TTSRequest, request: Request):
     if not flags.flag("output.speech"):  # kill switch (default OFF); the site falls back to the browser's own voice
         return _unavailable()

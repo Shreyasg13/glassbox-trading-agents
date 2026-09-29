@@ -4,7 +4,7 @@ import os
 import time
 import uuid
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from .logging_config import request_id_var, setup_logging
@@ -14,6 +14,7 @@ from .routers import flags as flags_routes
 from .routers import inbox as inbox_routes
 from .routers import public as public_routes
 from .routers import user_digest as user_digest_routes
+from .auth import require_role
 
 app = FastAPI(
     title="GlassBox API",
@@ -124,6 +125,6 @@ app.include_router(tts.router)
 app.include_router(ledger.router)
 
 
-@app.get("/health", tags=["meta"])
+@app.get("/health", tags=["meta"], dependencies=[Depends(require_role("public"))])
 async def health():
     return {"status": "ok"}
