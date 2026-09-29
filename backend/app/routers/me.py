@@ -130,7 +130,27 @@ async def run_my_report(body: OrchestrationRunRequest, user: TokenPayload = Depe
     async def _work():
         # Runs started by end users may carry their own text; LLM_FAILOVER_USER_RUNS=0
         # keeps those on the requested provider only (see llm_router's PRIVACY note).
-        return await orchestration.run_orchestration(orch, body.input, job_id=job_id, allow_failover=llm_router.user_runs_may_fail_over())
+        result = await orchestration.run_orchestration(orch, body.input, job_id=job_id, allow_failover=llm_router.user_runs_may_fail_over())
+
+        # Publish the orchestration report through the single exit
+        from .. import publish
+        # Convert result to text for publishing
+        import json
+        result_text = json.dumps(result, default=str, separators=(',', ':'))
+        content_ref = f"user_report:{user.sub}:{job_id}"
+        pub_result = publish.publish(
+            channel="user_report",
+            text=result_text,
+            run_ids=(),  # user reports don't have committee run_ids
+            content_ref=content_ref,
+            is_html=False,
+            committee_output=False,
+        )
+
+        # In enforce mode, held reports return a generic message
+        if not pub_result.allowed:
+            return {"held": True, "message": "This report is being reviewed."}
+        return result
 
     asyncio.create_task(jobs.run_job(job_id, _work))
     return JobAccepted(job_id=job_id)

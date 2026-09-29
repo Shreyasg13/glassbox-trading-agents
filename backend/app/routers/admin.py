@@ -527,3 +527,74 @@ async def gate_health(
     if (end - start).days + 1 > GATE_HEALTH_MAX_DAYS:
         raise HTTPException(status_code=400, detail=f"Date range is longer than {GATE_HEALTH_MAX_DAYS} days")
     return await run_in_threadpool(health.load, start, end)
+
+
+# ---- Quarantine (S3 T5) ----
+
+from sqlalchemy import select
+from ..migrated_tables import quarantine_items_table
+
+
+class QuarantineItem(BaseModel):
+    id: str
+    channel: str
+    run_id: Optional[str] = None
+    content_ref: str
+    status: str  # pending | approved | rejected | shadow
+    reason: Optional[str] = None
+    created_at: str
+    decided_at: Optional[str] = None
+    decided_by: Optional[str] = None
+
+
+class QuarantineAction(BaseModel):
+    action: str  # approve | reject
+    reason: Optional[str] = None
+
+
+@router.get("/quarantine", response_model=List[QuarantineItem])
+async def list_quarantine(status: Optional[str] = None, limit: int = 100, offset: int = 0) -> List[QuarantineItem]:
+    """List quarantine items, optionally filtered by status. Viewer gets 403; admin gets 200."""
+    limit = max(1, min(limit, 500))
+    stmt = select(quarantine_items_table).order_by(quarantine_items_table.c.created_at.desc()).limit(limit).offset(offset)
+    if status:
+        stmt = stmt.where(quarantine_items_table.c.status == status)
+    with db.engine.connect() as conn:
+        rows = conn.execute(stmt).fetchall()
+    return [
+        QuarantineItem(
+            id=r.id,
+            channel=r.channel,
+            run_id=r.run_id,
+            content_ref=r.content_ref,
+            status=r.status,
+            reason=r.reason,
+            created_at=r.created_at,
+            decided_at=r.decided_at,
+            decided_by=r.decided_by,
+        )
+        for r in rows
+    ]
+
+
+@router.post("/quarantine/{item_id}/action", status_code=204)
+async def action_quarantine(item_id: str, body: QuarantineAction, user: TokenPayload = Depends(require_admin)):
+    """Approve or reject a quarantine item (admin only)."""
+    if body.action not in ("approve", "reject"):
+        raise HTTPException(status_code=400, detail="action must be 'approve' or 'reject'")
+    new_status = "approved" if body.action == "approve" else "rejected"
+    with db.engine.connect() as conn:
+        # Check item exists
+        item = conn.execute(
+            select(quarantine_items_table).where(quarantine_items_table.c.id == item_id)
+        ).first()
+        if item is None:
+            raise HTTPException(status_code=404, detail="Quarantine item not found")
+        # Update
+        conn.execute(
+            quarantine_items_table.update()
+            .where(quarantine_items_table.c.id == item_id)
+            .values(status=new_status, decided_at=datetime.now(timezone.utc).isoformat(), decided_by=user.sub, reason=body.reason)
+        )
+        conn.commit()
+    db.log_audit(user.sub, f"quarantine.{body.action}", "quarantine_item", item_id, {"reason": body.reason})

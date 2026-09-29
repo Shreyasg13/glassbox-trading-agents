@@ -7,6 +7,27 @@ into a dated release with a git tag.
 ## [Unreleased]
 
 ### Added
+- **Single publish exit** (`app/publish.py`) (T5). Every piece of system-generated text that reaches a user goes through
+  `publish()` (or `publish_simple()` for non-committee outputs). It runs the A6 gate (for committee outputs) and the A7
+  compliance filter, records the verdict, and either allows or holds the text depending on the `publish.enforce` flag.
+- **Quarantine table** (`quarantine_items`, Alembic 0007) recording every publish check: channel, run_id, content_ref,
+  stage (A6|A7), status (`pending`|`approved`|`rejected`|`shadow`), reasons, timestamps. Indexed by status and created_at.
+- **Shadow mode** (default, `publish.enforce=False`): A6/A7 checks run and are recorded as `shadow` quarantine items,
+  but nothing is held from users. Admin can see what *would* be held.
+- **Enforce mode** (`publish.enforce=True`): failing outputs (A6 fail or A7 blocked) are held (`pending` quarantine item),
+  user-facing channels show "This content is being reviewed." instead, emails not sent, reports not written.
+- **Admin quarantine list** (`GET /api/admin/quarantine?status=`) read-only for admins (viewer gets 403).
+- **Report access control**: `GET /api/reports/narratives/{id}` returns 404 to non-admins when enforcement is on and a
+  `pending`/`rejected` quarantine item exists for that narrative.
+- **TTS whitelist** (`tts.ALLOWED_STATIC_LINES`): `POST /api/tts` (with `output.speech` on) only speaks text that exactly
+  matches one of the 8 Strategy Lens persona story lines; arbitrary text returns 503.
+- **Ledger append for committee decisions** (idempotent): each published committee decision is appended once to the ledger
+  with `call_type="committee_decision"`, payload includes decision, confidence, engine_signal, horizon_days: 30, a6_ok, a7_action.
+- **CI guard** (`tests/test_publish_is_the_only_exit.py`): AST scan fails if any module other than `publish.py` (or the
+  channel writer's own module) calls raw writers (`db.create_report_narrative`, `digest.send_email`, `user_digest` senders,
+  `notifications.generate_daily`) outside a `publish` path.
+- **Publish.enforce flag** in `app/flags.py` (default False, description: "Hold outputs that fail verification or compliance.
+  Off = shadow mode: checks are recorded, nothing is held.").
 - **A7 compliance filter** (`app/compliance/filter.py`) (T8). Deterministic, no model calls. `check(text, channel=...)` is
   pure and returns the (possibly rewritten) text, the most severe action (`blocked` > `flagged` > `rewritten` > `pass`) and
   the rule hits; `record(result, run_id)` writes the hits to the new `compliance_events` table (Alembic 0006) and never

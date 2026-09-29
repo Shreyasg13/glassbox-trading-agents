@@ -206,7 +206,7 @@ def send_email(subject: str, html: str, cfg: Dict[str, Any], headers: Optional[D
 def run(now=None, book=None, runner=None) -> Dict[str, Any]:
     """The pipeline stage entry point. Never raises: a bad SMTP config or a rendering surprise is
     reported, not fatal (see the module docstring)."""
-    from . import flags
+    from . import flags, publish
 
     if not flags.flag("output.email"):
         return {"ok": True, "sent": False, "detail": "disabled: the output.email flag is off"}
@@ -222,7 +222,19 @@ def run(now=None, book=None, runner=None) -> Dict[str, Any]:
         return {"ok": True, "sent": False, "detail": "not configured: set DIGEST_SMTP_USER, DIGEST_SMTP_APP_PASSWORD, DIGEST_TO_EMAIL"}
     try:
         html = render_html(d)
-        (runner or send_email)(f"GlassBox digest — {d['date'] or 'today'}", html, cfg)
+        content_ref = f"admin_digest:{d.get('date', 'unknown')}"
+        # Publish through the single exit (admin digest is HTML)
+        result = publish.publish_simple(
+            channel="admin_digest",
+            text=html,
+            content_ref=content_ref,
+            is_html=True,
+        )
+        # In enforce mode, held emails are not sent
+        if not result.allowed:
+            log.info("Admin digest for %s held by publish (enforce mode)", d.get('date', 'unknown'))
+            return {"ok": True, "sent": False, "detail": "held by publish (enforce mode)"}
+        (runner or send_email)(f"GlassBox digest — {d['date'] or 'today'}", result.text, cfg)
     except Exception as exc:  # noqa: BLE001 -- sending is a nicety; never let it fail the pipeline
         log.warning("could not send the daily digest: %s", exc)
         return {"ok": False, "sent": False, "detail": f"{type(exc).__name__}: {exc}"}

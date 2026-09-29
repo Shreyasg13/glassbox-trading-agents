@@ -616,8 +616,9 @@ def test_saved_decision_identical_with_claims_step_on_and_off(tmp_path, monkeypa
         with eng.begin() as conn:
             migrate.upgrade(conn)
         monkeypatch.setattr(db, "engine", eng)
-        # Set the flag
-        monkeypatch.setattr(flags, "flag", lambda key: claims_enabled if key == "pipeline.claims" else flags.flag(key))
+        # Set the flag - save original to avoid recursion
+        orig_flag = flags.flag
+        monkeypatch.setattr(flags, "flag", lambda key: claims_enabled if key == "pipeline.claims" else orig_flag(key))
 
         async def _go():
             return await committee_daily.run_daily(symbols=["AAPL"], force=True, dry_run=False)

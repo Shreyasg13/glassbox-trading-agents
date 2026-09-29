@@ -44,6 +44,8 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 log = logging.getLogger("glassbox.db")
 
+from .migrated_tables import verification_results_table, claims_table, ledger_calls_table, committee_narratives_table, source_snapshots_table, quarantine_items_table
+
 DB_PATH = Path(os.environ.get("GLASSBOX_DB_PATH", str(Path(__file__).parent / "glassbox.db")))
 _env_url = os.environ.get("DATABASE_URL")
 DATABASE_URL = _env_url if _env_url else f"sqlite:///{DB_PATH}"
@@ -608,6 +610,13 @@ def list_committee_runs(limit: int = 60) -> List[Dict[str, Any]]:
 
 def list_all_committee_runs() -> List[Dict[str, Any]]:
     return _committee_rows()
+
+
+def get_committee_run(run_id: str) -> Optional[Dict[str, Any]]:
+    """Get a single committee run by its ID (e.g. '2024-04-23:AAPL')."""
+    with engine.connect() as conn:
+        row = conn.execute(select(committee_runs_table).where(committee_runs_table.c.id == run_id)).fetchone()
+    return json.loads(row.config) if row else None
 
 
 # ---- Market data, artifacts and snapshots ----

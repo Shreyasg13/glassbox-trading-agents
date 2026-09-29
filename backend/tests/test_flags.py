@@ -134,7 +134,9 @@ def test_speech_is_off_by_default_and_the_switch_turns_it_on(migrated, monkeypat
     from app.routers import tts as tts_routes
 
     monkeypatch.setattr(tts, "lookup", lambda *a: (b"audio", "audio/mpeg"))
-    body = {"text": "hello", "elevenlabs_voice_id": "A" * 20, "kokoro_voice_id": "am_michael"}
+    # Use a whitelisted static line (exact match required after whitespace normalization)
+    allowed_text = tts.ALLOWED_STATIC_LINES[0]
+    body = {"text": allowed_text, "elevenlabs_voice_id": "A" * 20, "kokoro_voice_id": "am_michael"}
     c = _client(tts_routes.router)
     assert c.post("/api/tts", json=body).status_code == 503  # off by default
     flags.set_flag("output.speech", True, "admin")

@@ -102,9 +102,26 @@ async def ask(body: AskBody, user: TokenPayload = Depends(get_current_user)) -> 
     ctx = await run_in_threadpool(_facts)
     under_cap = await run_in_threadpool(assistant.total_used_today) < assistant.GLOBAL_DAILY_CAP
     result = await assistant.answer(body.question, [t.model_dump() for t in body.history], ctx["facts"], allow_llm=under_cap)
-    mid = await run_in_threadpool(assistant.save, user.sub, ctx["sig"]["as_of"], body.question, result)
+
+    # Publish the assistant answer through the single exit
+    from .. import publish
+    content_ref = f"assistant:{user.sub}:{ctx['sig']['as_of']}"
+    pub_result = publish.publish_simple(
+        channel="assistant",
+        text=result["answer"],
+        content_ref=content_ref,
+        is_html=False,
+    )
+
+    # In enforce mode, held answers return a generic message
+    if not pub_result.allowed:
+        answer_text = "This answer is being reviewed."
+    else:
+        answer_text = pub_result.text
+
+    mid = await run_in_threadpool(assistant.save, user.sub, ctx["sig"]["as_of"], body.question, {"answer": answer_text, "used_llm": result["used_llm"], "model": result.get("model", "")})
     return {
-        "id": mid, "answer": result["answer"], "as_of": ctx["sig"]["as_of"], "note": ctx["sig"]["note"], "used_ai": result["used_llm"],
+        "id": mid, "answer": answer_text, "as_of": ctx["sig"]["as_of"], "note": ctx["sig"]["note"], "used_ai": result["used_llm"],
         "sources": [r["symbol"] for r in ctx["sig"]["rows"]],
         "remaining_today": await run_in_threadpool(assistant.remaining_today, user.sub),
         "disclaimer": disclaimer.text(),

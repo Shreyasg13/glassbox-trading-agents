@@ -360,18 +360,37 @@ def _write_report(d: str, docs: List[Dict[str, Any]]) -> bool:
     key = f"committee:{d}:{hashlib.md5(sig.encode()).hexdigest()[:10]}"
     if any(n.get("profile") == key for n in db.list_report_narratives()):
         return False
-    db.create_report_narrative(
-        {
+
+    report_text = build_report(d, docs)
+    run_ids = tuple(r["id"] for r in docs)
+    content_ref = key
+
+    # Publish through the single exit (includes DB write via writer_payload)
+    from . import publish
+    result = publish.publish(
+        channel="committee_report",
+        text=report_text,
+        run_ids=run_ids,
+        content_ref=content_ref,
+        is_html=False,
+        committee_output=True,
+        writer_payload={
             "id": str(uuid.uuid4()),
             "date": d.replace("-", ""),
             "provider": "system",
             "model": "committee-vote",
             "title": "Investment Committee · daily review",
             "profile": key,
-            "narrative": build_report(d, docs),
+            "narrative": report_text,
             "created_at": datetime.now(timezone.utc).isoformat(),
-        }
+        },
     )
+
+    # In enforce mode, held reports are not written
+    if not result.allowed:
+        log.info("Committee report for %s held by publish (enforce mode)", d)
+        return False
+
     return True
 
 

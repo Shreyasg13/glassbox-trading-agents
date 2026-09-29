@@ -254,7 +254,7 @@ def default_stages(target: str) -> Dict[str, Callable[[], Any]]:
 
     return {
         "free_data": free_data, "committee": committee, "paper_cycle": paper_cycle,
-        "weekly_research": weekly_research, "snapshot": snapshot, "mirror": mirror, "digest_email": digest_email, "user_digests": user_digests, "notifications": notifications_stage,
+        "weekly_research": weekly_research, "snapshot": snapshot, "mirror": mirror, "notifications": notifications_stage, "digest_email": digest_email, "user_digests": user_digests,
     }
 
 

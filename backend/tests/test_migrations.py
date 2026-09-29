@@ -34,9 +34,10 @@ def test_upgrade_creates_the_table_and_records_the_revision(engine):
     assert "committee_narratives" not in tables(engine)
     assert "verification_results" not in tables(engine)
     assert "compliance_events" not in tables(engine)
+    assert "quarantine_items" not in tables(engine)
     with engine.begin() as conn:
         migrate.upgrade(conn)
-    assert "feature_flags" in tables(engine) and "source_snapshots" in tables(engine) and "ledger_calls" in tables(engine) and "claims" in tables(engine) and "committee_narratives" in tables(engine) and "verification_results" in tables(engine) and "compliance_events" in tables(engine) and revision(engine) == "0006"
+    assert "feature_flags" in tables(engine) and "source_snapshots" in tables(engine) and "ledger_calls" in tables(engine) and "claims" in tables(engine) and "committee_narratives" in tables(engine) and "verification_results" in tables(engine) and "compliance_events" in tables(engine) and "quarantine_items" in tables(engine) and revision(engine) == "0007"
     cols = {c["name"] for c in inspect(engine).get_columns("feature_flags")}
     assert cols == {"key", "enabled", "updated_by", "updated_at"}
     snap_cols = {c["name"] for c in inspect(engine).get_columns("source_snapshots")}
@@ -59,13 +60,19 @@ def test_upgrade_creates_the_table_and_records_the_revision(engine):
     assert ce_cols == {"id", "run_id", "channel", "rule_id", "matched_text", "action", "created_at"}
     ce_indexes = {idx["name"] for idx in inspect(engine).get_indexes("compliance_events")}
     assert {"ix_compliance_events_created_at", "ix_compliance_events_run_id"} <= ce_indexes
+    # Quarantine items table
+    qi_cols = {c["name"] for c in inspect(engine).get_columns("quarantine_items")}
+    expected_qi = {"id", "channel", "run_id", "content_ref", "stage", "status", "reasons_json", "created_at", "reviewer_id", "review_note", "reviewed_at"}
+    assert qi_cols == expected_qi
+    qi_indexes = {idx["name"] for idx in inspect(engine).get_indexes("quarantine_items")}
+    assert {"ix_quarantine_items_status", "ix_quarantine_items_created_at"} <= qi_indexes
 
 
 def test_upgrading_twice_is_a_no_op(engine):
     for _ in range(2):
         with engine.begin() as conn:
             migrate.upgrade(conn)
-    assert revision(engine) == "0006"
+    assert revision(engine) == "0007"
 
 
 def test_0006_downgrades_to_0005_dropping_only_compliance_events(engine):
@@ -80,7 +87,7 @@ def test_0006_downgrades_to_0005_dropping_only_compliance_events(engine):
     assert "compliance_events" not in tables(engine) and "verification_results" in tables(engine)
     with engine.begin() as conn:
         migrate.upgrade(conn)
-    assert revision(engine) == "0006"
+    assert revision(engine) == "0007"
     with engine.connect() as c:
         assert c.execute(migrated_metadata.tables["compliance_events"].select()).fetchall() == []
 

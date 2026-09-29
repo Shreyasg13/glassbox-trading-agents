@@ -34,10 +34,24 @@ def _unavailable() -> Response:
     )
 
 
+def _is_allowed_text(text: str) -> bool:
+    """Check if the text matches an allowed static line (exact match after whitespace normalization)."""
+    normalized = " ".join(text.strip().split())
+    for allowed in tts.ALLOWED_STATIC_LINES:
+        if " ".join(allowed.split()) == normalized:
+            return True
+    return False
+
+
 @router.post("/tts")
 async def api_tts(body: TTSRequest, request: Request):
     if not flags.flag("output.speech"):  # kill switch (default OFF); the site falls back to the browser's own voice
         return _unavailable()
+
+    # Only allow text that matches the static whitelist (Strategy Lens persona stories)
+    if not _is_allowed_text(body.text):
+        return _unavailable()
+
     # Cache first: a hit spends no provider quota, so it must not consume the
     # caller's rate-limit budget (every visitor replays the same fixed lines).
     hit = tts.lookup(body.text, body.elevenlabs_voice_id, body.kokoro_voice_id)

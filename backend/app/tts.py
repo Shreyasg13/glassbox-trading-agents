@@ -123,6 +123,20 @@ MAX_CHARS = 800
 
 TTSResult = Tuple[bytes, str]  # (audio_bytes, content_type)
 
+# Static whitelist of UI lines that may be spoken via TTS.
+# These are the "story" lines from the 8 Strategy Lens personas (frontend/components/marketing/lensData.ts).
+# Only exact matches are allowed (after whitespace normalization).
+ALLOWED_STATIC_LINES: Tuple[str, ...] = (
+    "I read your holdings like a business owner, not a ticker-watcher. Durable moat, honest management, cash that compounds — if the business is wonderful and the price is fair, time does the rest. I flag the ones you should never sell.",
+    "I hunt growth hiding in plain sight — the everyday company Wall Street ignored. I check the PEG, not just the P/E, so you pay a fair price for real earnings. Turn over enough rocks and the tenbagger is already in your cart.",
+    "I look at your book as many uncorrelated bets at once — equities, credit, commodities — each on a tight risk leash. My edge is not one big call; it is a hundred small ones that never blow up together.",
+    "I see patterns in your holdings no human eye catches — faint, statistical, fleeting. I let the mathematics speak and I never override the model on a hunch. Signal, not story. Discipline, not drama.",
+    "I balance your portfolio against every economic weather — growth, inflation, both rising, both falling. I do not predict the storm; I make sure you hold up in all of them. Principles over forecasts, always.",
+    "I treat your book like a floor of specialist teams on tight leashes. The moment a position breaches its risk limit, it gets cut — no debate, no ego. Consistency is the alpha; the drawdown you avoid is the return you keep.",
+    "I was doing computational finance before it had a name. Every inefficiency in your holdings is a problem to be solved with code and clean data — not intuition. If the math does not confirm it, I do not act on it.",
+    "I watch how perception bends reality in your positions — the feedback loop between what people believe and what then becomes true. When the thesis is right and the crowd is wrong, that gap is the opportunity.",
+)
+
 _MEM_CACHE_MAX_ENTRIES = 256
 _CONTENT_TYPE_EXT = {"audio/mpeg": "mp3", "audio/wav": "wav", "audio/flac": "flac"}
 _EXT_CONTENT_TYPE = {v: k for k, v in _CONTENT_TYPE_EXT.items()}
