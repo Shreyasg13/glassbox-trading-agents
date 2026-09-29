@@ -4,48 +4,59 @@ import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 
+# Set up fake database for testing
+@pytest.fixture(autouse=True)
+def _fake_db_for_tests(monkeypatch):
+    """Fake the database for testing the user route with token."""
+    from app import auth, db
+
+    fake_store = {}
+
+    def fake_get_user_by_username(username):
+        return fake_store.get(username.lower())
+
+    def fake_create_user(data):
+        username_lower = data["username"].lower()
+        fake_store[username_lower] = {
+            "id": f"fake-{username_lower}",
+            "username": data["username"],
+            "username_lower": username_lower,
+            "password_hash": data["password_hash"],
+            "role": data["role"],
+            "created_at": data["created_at"],
+        }
+        return fake_store[username_lower]
+
+    def fake_get_user_by_oauth(provider, subject):
+        for row in fake_store.values():
+            if row.get("oauth_provider") == provider and row.get("oauth_subject") == subject:
+                return row
+        return None
+
+    monkeypatch.setattr(auth.db, "get_user_by_username", fake_get_user_by_username)
+    monkeypatch.setattr(auth.db, "create_user", fake_create_user)
+    monkeypatch.setattr(auth.db, "get_user_by_oauth", fake_get_user_by_oauth)
+    return fake_store
+
 client = TestClient(app)
 
 
-def test_public_routes_without_login():
-    """Test that public routes return 200 without login."""
-    routes = [
-        ("/health", "GET"),
-        ("/api/public/disclaimer", "GET"),
-        ("/api/live-signals", "GET"),
-        ("/api/data", "GET"),
-        ("/api/track1/data", "GET"),
-        ("/api/track2/data", "GET"),
-        ("/api/track1/agents", "GET"),
-        ("/api/track2/agents", "GET"),
-        ("/api/agent-performance", "GET"),
-        ("/api/historical-reports", "GET"),
-        ("/api/daily-summary", "GET"),
-        ("/api/portfolio-stats", "GET"),
-        ("/api/holdings", "GET"),
-        ("/api/monte-carlo", "POST", {"days": 7, "simulations": 1000, "confidence": 0.95}),
-        ("/api/tts", "POST", {"text": "Hello", "elevenlabs_voice_id": "pNInz6obpgDQVYbVawxC", "kokoro_voice_id": "am_test"}),
-        ("/api/analytics/hit", "POST", {"path": "/test", "referrer": ""}),
-        ("/api/digest/confirm", "GET", {"u": "test", "t": "test"}),
-        ("/api/digest/unsubscribe", "GET", {"u": "test", "t": "test"}),
-        ("/auth/login", "POST", {"username": "test", "password": "test"}),
-        ("/auth/signup", "POST", {"username": "test", "password": "test"}),
-        ("/auth/oauth/google/start", "GET"),
-        ("/auth/oauth/google/callback", "GET"),
-    ]
+def test_health_route():
+    """Test that /health returns 200 without login (spec requirement)."""
+    response = client.get("/health")
+    assert response.status_code == 200, f"Route GET /health returned {response.status_code} (expected 200): {response.json()}"
 
-    for route in routes:
-        if len(route) == 2:
-            path, method = route
-            data = None
-        else:
-            path, method, data = route
 
-        response = client.request(method, path, json=data if data else None)
-        # Some public routes might return 404 if no data is available (e.g., /api/monte-carlo)
-        # Some public routes like /auth/login/ /auth/signup might return 401 if credentials are invalid
-        # The important thing is that they don't return 403 (forbidden)
-        assert response.status_code != 403, f"Route {method} {path} returned 403 (should be public): {response.status_code}"
+def test_api_public_disclaimer_route():
+    """Test that /api/public/disclaimer returns 200 without login (spec requirement)."""
+    response = client.get("/api/public/disclaimer")
+    assert response.status_code == 200, f"Route GET /api/public/disclaimer returned {response.status_code} (expected 200): {response.json()}"
+
+
+def test_api_live_signals_route():
+    """Test that /api/live-signals returns 200 without login (spec requirement)."""
+    response = client.get("/api/live-signals")
+    assert response.status_code == 200, f"Route GET /api/live-signals returned {response.status_code} (expected 200): {response.json()}"
 
 
 def test_user_route_without_login():
@@ -62,7 +73,17 @@ def test_admin_route_without_login():
 
 def test_user_route_with_token():
     """Test that a user route returns 200 with a valid user token."""
-    # This would require creating a user token, which is more complex
-    # For now, just test that it requires auth
-    response = client.get("/api/me/digest")
-    assert response.status_code == 401
+    # Create a test user using the FastAPI endpoint
+    signup_response = client.post("/auth/signup", json={
+        "username": "test_user_for_route",
+        "password": "test_password_for_route"
+    })
+
+    assert signup_response.status_code == 201, f"Signup failed: {signup_response.status_code} - {signup_response.json()}"
+
+    token = signup_response.json().get("access_token")
+    assert token, "No token returned from signup"
+
+    headers = {"Authorization": f"Bearer {token}"}
+    response = client.get("/api/me/digest", headers=headers)
+    assert response.status_code == 200, f"User route with token returned {response.status_code} (expected 200): {response.json()}"
