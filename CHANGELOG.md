@@ -57,6 +57,16 @@ into a dated release with a git tag.
   reason, and the five claim metrics that fail most often. Ask and challenger runs are not counted. Read-only:
   `GET /api/admin/gate-health?from=&to=` (admin only) aggregates the existing `verification_results` and `claims` tables;
   no migration.
+- **Weekly discrepancy report** (T13). `weekly_reports` table (Alembic 0009): id, week_start (unique), status
+  (`draft`|`published`), body_json, created_at, published_at/by. A pure `build_draft()` (`app/weekly_report.py`) summarizes
+  one Mon-Sun week from `verification_results` and `compliance_events`: runs checked, the A6 pass rate (`gate.summarize`'s
+  own rule, so it can never count differently from the badge or Gate health), the top 5 failing checks and metrics, and
+  A7 events by action (`blocked`/`rewritten`/`flagged`) -- counts only, no raw payloads, no user data. An idempotent job
+  (`app/scripts/weekly_report.py`) drafts the previous week every Monday, wired as the daily pipeline's new
+  `weekly_report` stage (last in `STAGE_ORDER`; skips on any other day, never raises). Admin reviews and publishes a
+  draft (`GET/POST /api/admin/weekly-reports[/{id}/publish]`; publishing twice is a 409; a published report has no edit
+  route). Public transparency page at `/transparency` and `GET /api/public/weekly-reports[/{id}]` show published
+  reports only, newest first; a draft is never visible there (404).
 
 ### Changed
 - Removed the "For Advisors" section and its nav link. It pitched paid advisor features (white-label, multi-client,

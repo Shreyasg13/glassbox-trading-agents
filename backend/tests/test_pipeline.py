@@ -95,7 +95,7 @@ def test_a_normal_day_runs_every_stage_in_order_and_records_it(real_db):
     clock, calls = Clock(utc(2026, 9, 21, 20, 35)), Calls()
     out = PL.run(clock.now, clock.sleep, lambda: synced("2026-09-21"), stages(calls))
     assert out["status"] == "ok" and out["exit_code"] == 0 and out["target"] == "2026-09-21"
-    assert calls.order == ["free_data", "committee", "paper_cycle", "score_ledger", "weekly_research", "snapshot", "mirror", "notifications", "digest_email", "user_digests"]
+    assert calls.order == ["free_data", "committee", "paper_cycle", "score_ledger", "weekly_research", "snapshot", "mirror", "notifications", "digest_email", "user_digests", "weekly_report"]
     assert clock.slept == []  # the close was already final: no waiting, no polling
     rec = PL.last_status()
     assert rec["target"] == "2026-09-21" and all(v["ok"] for v in rec["stages"].values()) and rec["sync"]["coverage"] == 1.0
@@ -240,6 +240,28 @@ def test_the_digest_email_stage_calls_digest_run(monkeypatch):
     monkeypatch.setattr(digest, "run", lambda: seen.append(1) or {"ok": True, "sent": False, "detail": "not configured"})
     result = PL.default_stages("2026-09-18")["digest_email"]()
     assert seen == [1] and result == {"ok": True, "sent": False, "detail": "not configured"}
+
+
+def test_the_weekly_report_stage_runs_mondays_only(monkeypatch):
+    from app import weekly_report as wr
+
+    calls = []
+    monkeypatch.setattr(wr, "create_draft_for_week", lambda week_start: calls.append(week_start) or {"id": "r1"})
+    assert PL.default_stages("2026-09-18")["weekly_report"]() == {"skipped": "not monday"}  # a Friday
+    assert calls == []
+    out = PL.default_stages("2026-09-21")["weekly_report"]()  # a Monday
+    assert out == {"ok": True, "created": True} and calls == [wr.previous_week_start(date(2026, 9, 21))]
+
+
+def test_the_weekly_report_stage_never_raises(monkeypatch):
+    from app import weekly_report as wr
+
+    def boom(week_start):
+        raise RuntimeError("db not migrated")
+
+    monkeypatch.setattr(wr, "create_draft_for_week", boom)
+    out = PL.default_stages("2026-09-21")["weekly_report"]()  # a Monday: would run, but the DB call blows up
+    assert out == {"ok": False, "error": "RuntimeError: db not migrated"}
 
 
 def test_status_history_keeps_one_record_per_day_and_caps_its_length(real_db):

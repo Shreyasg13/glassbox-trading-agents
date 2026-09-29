@@ -636,3 +636,27 @@ export type GateHealth = {
   top_checks: GateHealthCheck[];
   top_metrics: GateHealthMetric[];
 };
+
+// ---- Weekly discrepancy report (admin + public, S3 T13) ----
+
+export type WeeklyReportStatus = "draft" | "published";
+
+export type WeeklyReportSummary = {
+  id: string;
+  week_start: string;
+  status: WeeklyReportStatus;
+  created_at: string;
+  published_at: string | null;
+  published_by: string | null;
+};
+
+export type WeeklyReportBody = {
+  week_start: string;
+  runs_checked: number;
+  a6: { runs_checked: number; runs_ok: number; claims_checked: number; claims_verified: number; pass_rate: number | null };
+  top_failing_checks: { check_type: string; failures: number; top_reason: string | null }[];
+  top_failing_metrics: { metric: string; failures: number; claims: number }[];
+  a7_by_action: { blocked: number; rewritten: number; flagged: number };
+};
+
+export type WeeklyReportDetail = WeeklyReportSummary & { body: WeeklyReportBody };
