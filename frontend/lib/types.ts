@@ -456,6 +456,58 @@ export type TrackRecord = {
   tax_assumptions: { short_term: number; long_term: number };
 };
 
+// ---- Ledger track record (S3 T12c) ----
+
+export type LedgerScoredCall = {
+  call_id: string;
+  symbol: string;
+  decision: "BUY" | "SELL" | "HOLD";
+  confidence: number;
+  recorded_at: string;
+  recorded_label: string;
+  horizon: number;
+  entry_date: string | null;
+  exit_date: string | null;
+  forward_return: number | null;
+  benchmark_return: number | null;
+  excess_return: number | null;
+  right: boolean;
+};
+
+export type LedgerMetrics = {
+  count: number;
+  hit_rate: number | null;
+  mean_excess_return: number | null;
+  rank_ic: number | null;
+  rank_ic_t: number | null;
+  brier: number | null;
+  calibration: Array<{
+    bin: number;
+    confidence_range: string;
+    n: number;
+    mean_confidence: number | null;
+    observed_hit_rate: number | null;
+  }> | null;
+  reason: string | null;
+};
+
+export type LedgerTrackRecord = {
+  scored_calls: LedgerScoredCall[];
+  metrics: Record<string, LedgerMetrics>;
+  ledger_calls: number;
+  pre_ledger_note: string;
+};
+
+export type PublicTrackRecordSummary = Record<
+  string,
+  {
+    count: number;
+    hit_rate: number | null;
+    mean_excess_return: number | null;
+    rank_ic: number | null;
+  }
+>;
+
 export type GateResult = { n_days: number; needed_days: number; mean_excess_bps: number | null; ci_low_bps: number | null; ci_high_bps: number | null; verdict: "insufficient" | "edge" | "no edge yet" | "worse" };
 export type EvidenceRow = { id: string; name: string; challenger?: boolean; live_days: number; live_return: number | null; vs: Record<string, GateResult> };
 export type ResearchView = {
