@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from .. import db, user_digest
-from ..auth import TokenPayload, get_current_user
+from ..auth import TokenPayload, get_current_user, require_role
 from .me import _require_real_user_row
 
 me_router = APIRouter(prefix="/api/me/digest", tags=["me"])
@@ -61,7 +61,7 @@ def _row_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     return next((r for r in db.list_users() if r.get("id") == user_id), None)
 
 
-@public_router.get("/confirm")
+@public_router.get("/confirm", dependencies=[Depends(require_role("public"))])
 async def confirm(u: str = Query(max_length=64), t: str = Query(max_length=64)) -> HTMLResponse:
     row = await run_in_threadpool(_row_by_id, u)
     if row is None or not await run_in_threadpool(user_digest.confirm_pending, row, t):
@@ -69,7 +69,7 @@ async def confirm(u: str = Query(max_length=64), t: str = Query(max_length=64)) 
     return _page("Email confirmed", "Your daily digest is on. You can change or stop it anytime from your dashboard.")
 
 
-@public_router.api_route("/unsubscribe", methods=["GET", "POST"])
+@public_router.api_route("/unsubscribe", methods=["GET", "POST"], dependencies=[Depends(require_role("public"))])
 async def unsubscribe(u: str = Query(max_length=64), t: str = Query(max_length=64)) -> HTMLResponse:
     row = await run_in_threadpool(_row_by_id, u)
     if row is None or not user_digest.check_token("unsubscribe", u, t):

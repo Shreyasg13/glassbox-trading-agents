@@ -9,16 +9,17 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 
 from .. import db
 from ..job_events import broadcaster
+from ..auth import require_role
 
 router = APIRouter(tags=["ws"])
 
 
 @router.websocket("/ws/jobs/{job_id}")
-async def ws_job(websocket: WebSocket, job_id: str) -> None:
+async def ws_job(websocket: WebSocket, job_id: str, role: str = Depends(require_role("public"))) -> None:
     await websocket.accept()
     job = db.get_job(job_id)
     if job is None:

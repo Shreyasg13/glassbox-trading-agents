@@ -9,7 +9,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from .. import analytics, db
-from ..auth import require_admin
+from ..auth import require_admin, require_role
 from ..rate_limit import SlidingWindowLimiter, client_key
 
 log = logging.getLogger("glassbox.analytics")
@@ -29,7 +29,7 @@ class Hit(BaseModel):
     utm_campaign: str = Field(default="", max_length=100)
 
 
-@public_router.post("/hit", status_code=204)
+@public_router.post("/hit", status_code=204, dependencies=[Depends(require_role("public"))])
 async def hit(body: Hit, request: Request) -> Response:
     """Always answers 204: analytics must never surface an error to a visitor."""
     try:

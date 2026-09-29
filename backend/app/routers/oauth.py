@@ -21,12 +21,13 @@ from __future__ import annotations
 import os
 import secrets
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, status, Depends
 from fastapi.responses import RedirectResponse
 
 from .. import auth as auth_module
 from .. import db
 from .. import oauth_google
+from ..auth import require_role
 
 router = APIRouter(prefix="/auth/oauth", tags=["auth"])
 
@@ -45,7 +46,7 @@ def _redirect_uri(provider: str) -> str:
     return f"{_app_origin()}/auth/oauth/{provider}/callback"
 
 
-@router.get("/google/start")
+@router.get("/google/start", dependencies=[Depends(require_role("public"))])
 async def google_start():
     if not oauth_google.is_configured():
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Google sign-in isn't configured yet")
@@ -56,7 +57,7 @@ async def google_start():
     return resp
 
 
-@router.get("/google/callback")
+@router.get("/google/callback", dependencies=[Depends(require_role("public"))])
 async def google_callback(
     request: Request,
     code: str | None = None,
