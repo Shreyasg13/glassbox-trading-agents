@@ -59,8 +59,8 @@ def test_grouping_admin_and_undeclared():
         f"Admin route appears in wrong section (pos {admin_row_pos}, admin section at {admin_section_start}, undeclared at {undeclared_section_start})"
 
     # An undeclared route should appear in undeclared section
-    undeclared_route_key = "GET /api/agent-performance"
-    undeclared_row = f"| GET | /api/agent-performance |"
+    undeclared_route_key = "GET /openapi.json"  # FastAPI built-in, stays undeclared until /api/docs moves
+    undeclared_row = f"| GET | /openapi.json |"
     undeclared_row_pos = content.find(undeclared_row)
     assert undeclared_row_pos != -1, f"Undeclared route {undeclared_route_key} not found in docs"
     assert undeclared_row_pos > undeclared_section_start, \

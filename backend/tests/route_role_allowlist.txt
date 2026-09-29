@@ -1,27 +1,4 @@
-GET /api/agent-performance
-GET /api/daily-summary
-GET /api/data
-GET /api/digest/confirm
-GET /api/historical-reports
-GET /api/live-signals
-GET /api/portfolio-stats
-GET /api/public/disclaimer
-GET /api/track1/agents
-GET /api/track1/data
-GET /api/track2/agents
-GET /api/track2/data
-GET /auth/oauth/google/callback
-GET /auth/oauth/google/start
-GET /docs
-GET /docs/oauth2-redirect
-GET /health
-GET /openapi.json
-GET /redoc
-GET,POST /api/digest/unsubscribe
-POST /api/analytics/hit
-POST /api/monte-carlo
-POST /api/tts
-POST /auth/login
-POST /auth/signup
-WS /ws/jobs/{job_id}
-WS /ws/signals
+GET /docs  # FastAPI built-in
+GET /docs/oauth2-redirect  # FastAPI built-in
+GET /openapi.json  # FastAPI built-in
+GET /redoc  # FastAPI built-in

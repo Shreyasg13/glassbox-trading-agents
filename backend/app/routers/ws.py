@@ -17,10 +17,11 @@ import json
 import os
 from typing import List, Optional
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 
 from .. import data_source as ds
 from ..cache import hot_read_cache
+from ..auth import require_role
 
 router = APIRouter(tags=["ws"])
 
@@ -86,7 +87,7 @@ def ensure_broadcaster_started() -> None:
 
 
 @router.websocket("/ws/signals")
-async def ws_signals(websocket: WebSocket) -> None:
+async def ws_signals(websocket: WebSocket, role: str = Depends(require_role("public"))) -> None:
     # Public and unauthenticated by design (it's the demo's live ticker), so
     # cap concurrent sockets -- otherwise opening thousands of idle
     # connections is a free way to exhaust file descriptors and memory.

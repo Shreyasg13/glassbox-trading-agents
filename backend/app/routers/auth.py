@@ -7,11 +7,12 @@ from .. import auth as auth_module
 from .. import db
 from ..models import LoginRequest, SignupRequest, Token
 from ..rate_limit import login_lockout, rate_limit_login, rate_limit_signup
+from ..auth import require_role
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/login", response_model=Token, dependencies=[Depends(rate_limit_login)])
+@router.post("/login", response_model=Token, dependencies=[Depends(require_role("public")), Depends(rate_limit_login)])
 async def login(payload: LoginRequest):
     lockout_key = payload.username.strip().lower()
     # Per-account failed-attempt budget (on top of the per-IP one above) so
@@ -32,7 +33,7 @@ async def login(payload: LoginRequest):
     return Token(access_token=token, role=identity.role)
 
 
-@router.post("/signup", response_model=Token, status_code=status.HTTP_201_CREATED, dependencies=[Depends(rate_limit_signup)])
+@router.post("/signup", response_model=Token, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_role("public")), Depends(rate_limit_signup)])
 async def signup(payload: SignupRequest):
     try:
         identity = await run_in_threadpool(auth_module.signup, payload.username, payload.password)

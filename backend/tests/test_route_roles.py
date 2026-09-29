@@ -9,7 +9,9 @@ from tests import route_roles as rr
 
 
 def _allowlist() -> set[str]:
-    return {line.strip() for line in rr.ALLOWLIST.read_text(encoding="utf-8").splitlines() if line.strip()}
+    # entries may carry a trailing "# reason" comment (T1b-roles); only the route key before it counts
+    keys = (line.split("#", 1)[0].strip() for line in rr.ALLOWLIST.read_text(encoding="utf-8").splitlines())
+    return {k for k in keys if k}
 
 
 def test_every_route_declares_a_role_or_is_on_the_shrinking_legacy_allowlist():

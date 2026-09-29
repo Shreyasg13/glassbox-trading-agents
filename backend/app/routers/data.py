@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends
 
 from .. import data_source as ds
 from .. import db
-from ..auth import TokenPayload, get_current_user_optional
+from ..auth import TokenPayload, get_current_user_optional, require_role
 from ..cache import hot_read_cache
 from ..models import (
     AgentPerformance,
@@ -37,7 +37,7 @@ from ..models import (
 router = APIRouter(prefix="/api", tags=["data"])
 
 
-@router.get("/data", response_model=List[TrackDataPoint])
+@router.get("/data", response_model=List[TrackDataPoint], dependencies=[Depends(require_role("public"))])
 async def api_data():
     result = await hot_read_cache.get_or_compute_async(
         "api_data", ds.report_source_paths(), ds.load_latest_data
@@ -45,31 +45,31 @@ async def api_data():
     return result or []
 
 
-@router.get("/track1/data", response_model=List[TrackDataPoint])
+@router.get("/track1/data", response_model=List[TrackDataPoint], dependencies=[Depends(require_role("public"))])
 async def api_track1_data():
     return await hot_read_cache.get_or_compute_async(
         "track1_data", ds.track_source_paths("track1_performance.json"), ds.get_track1_data
     )
 
 
-@router.get("/track2/data", response_model=List[TrackDataPoint])
+@router.get("/track2/data", response_model=List[TrackDataPoint], dependencies=[Depends(require_role("public"))])
 async def api_track2_data():
     return await hot_read_cache.get_or_compute_async(
         "track2_data", ds.track_source_paths("track2_performance.json"), ds.get_track2_data
     )
 
 
-@router.get("/track1/agents", response_model=TrackAgentsResponse)
+@router.get("/track1/agents", response_model=TrackAgentsResponse, dependencies=[Depends(require_role("public"))])
 async def api_track1_agents():
     return {"agents": ds.TRACK1_AGENTS, "vn_score": 0.85, "total_agents": 3}
 
 
-@router.get("/track2/agents", response_model=TrackAgentsResponse)
+@router.get("/track2/agents", response_model=TrackAgentsResponse, dependencies=[Depends(require_role("public"))])
 async def api_track2_agents():
     return {"agents": ds.TRACK2_AGENTS, "vn_score": 0.92, "total_agents": 7}
 
 
-@router.get("/agent-performance", response_model=List[AgentPerformance])
+@router.get("/agent-performance", response_model=List[AgentPerformance], dependencies=[Depends(require_role("public"))])
 async def api_agent_performance():
     return db.get_agent_performance()
 
@@ -96,28 +96,28 @@ async def api_holdings(user: Optional[TokenPayload] = Depends(get_current_user_o
     )
 
 
-@router.get("/live-signals", response_model=LiveSignalsResponse)
+@router.get("/live-signals", response_model=LiveSignalsResponse, dependencies=[Depends(require_role("public"))])
 async def api_live_signals():
     return await hot_read_cache.get_or_compute_async(
         "live_signals", ds.live_signals_source_paths(), ds.get_live_signals
     )
 
 
-@router.get("/historical-reports", response_model=List[HistoricalReport])
+@router.get("/historical-reports", response_model=List[HistoricalReport], dependencies=[Depends(require_role("public"))])
 async def api_historical_reports():
     return await hot_read_cache.get_or_compute_async(
         "historical_reports", ds.report_source_paths(), ds.get_historical_reports
     )
 
 
-@router.get("/daily-summary", response_model=DailySummary | dict)
+@router.get("/daily-summary", response_model=DailySummary | dict, dependencies=[Depends(require_role("public"))])
 async def api_daily_summary():
     return await hot_read_cache.get_or_compute_async(
         "daily_summary", ds.report_source_paths(), ds.get_daily_summary
     )
 
 
-@router.get("/portfolio-stats", response_model=PortfolioStats)
+@router.get("/portfolio-stats", response_model=PortfolioStats, dependencies=[Depends(require_role("public"))])
 async def api_portfolio_stats():
     return await hot_read_cache.get_or_compute_async(
         "portfolio_stats", ds.portfolio_source_paths(), ds.get_portfolio_stats
