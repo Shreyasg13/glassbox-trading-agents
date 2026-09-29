@@ -3,8 +3,8 @@ read-only view of the same system (their stance for the day, and the simulated t
 
 Admin (/api/admin/strategy/*): decisions with the full per-agent inspector, today's risk table,
 capital results incl. tax, accuracy of the engine / risk signal / committee, the agent leaderboard.
-Users (/api/me/stance, /api/me/track-record): only reference strategies and their own watchlist --
-never another user's paper account.
+Users (/api/me/stance, /api/me/track-record, /api/me/ledger-track-record): only reference strategies
+and their own watchlist -- never another user's paper account.
 """
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 
-from .. import db, pipeline, portfolio_analytics, portfolio_view, research, snapshots, strategy
-from ..auth import TokenPayload, get_current_user, require_admin
+from .. import db, pipeline, portfolio_analytics, portfolio_view, research, scoring, snapshots, strategy
+from ..auth import TokenPayload, get_current_user, require_admin, require_role
 from ..rate_limit import rate_limit_admin_mutations
 
 admin_router = APIRouter(prefix="/api/admin/strategy", tags=["strategy"], dependencies=[Depends(require_admin), Depends(rate_limit_admin_mutations)])
@@ -92,6 +92,69 @@ async def pipeline_runs() -> Dict[str, Any]:
 @me_router.get("/track-record")
 async def track_record(user: TokenPayload = Depends(get_current_user)) -> Dict[str, Any]:
     return await run_in_threadpool(strategy.track_record)
+
+
+@me_router.get("/ledger-track-record", dependencies=[Depends(require_role("user"))])
+async def ledger_track_record() -> Dict[str, Any]:
+    """Forward-only scored ledger calls with per-horizon metrics (user-facing).
+
+    Returns stored rows from ledger_calls and call_outcomes joined by call_id.
+    Never recomputes prices -- only reads what the scoring job already stored.
+    """
+    def _compute() -> Dict[str, Any]:
+        # Join ledger calls with outcomes
+        calls = scoring.load_ledger_calls()
+        outcomes = scoring.load_outcomes()
+
+        outcomes_by_call: dict[str, list[dict[str, Any]]] = {}
+        for oc in outcomes:
+            outcomes_by_call.setdefault(oc["call_id"], []).append(oc)
+
+        scored_calls = []
+        for call in calls:
+            call_outcomes = outcomes_by_call.get(call["call_id"], [])
+            if not call_outcomes:
+                continue
+            for oc in call_outcomes:
+                ojson = oc["outcome_json"]
+                scored_calls.append({
+                    "call_id": call["call_id"],
+                    "symbol": call["ticker"],
+                    "decision": call["decision"],
+                    "confidence": call["confidence"],
+                    "recorded_at": call["recorded_at"],
+                    "recorded_label": "recorded before outcome",
+                    "horizon": oc["horizon"],
+                    "entry_date": ojson.get("entry_date"),
+                    "exit_date": ojson.get("exit_date"),
+                    "forward_return": ojson.get("forward_return"),
+                    "benchmark_return": ojson.get("benchmark_return"),
+                    "excess_return": ojson.get("excess_return"),
+                    "right": oc["score"] > 0,
+                })
+
+        # Group by horizon for metrics
+        by_horizon: dict[int, list[dict[str, Any]]] = {}
+        for sc in scored_calls:
+            h = sc["horizon"]
+            by_horizon.setdefault(h, []).append(sc)
+
+        # Compute metrics per horizon (only 1, 5, 20 as those are the scoring horizons)
+        metrics_by_horizon = {}
+        for h in (1, 5, 20):
+            horizon_calls = by_horizon.get(h, [])
+            metrics_by_horizon[str(h)] = scoring.metrics(horizon_calls)
+
+        ledger_calls_count = len(scoring.load_ledger_calls())
+
+        return {
+            "scored_calls": scored_calls,
+            "metrics": metrics_by_horizon,
+            "ledger_calls": ledger_calls_count,
+            "pre_ledger_note": "Calls before 2026-09-27 are pre-ledger and not scored.",
+        }
+
+    return await run_in_threadpool(_compute)
 
 
 @me_router.get("/stance")
