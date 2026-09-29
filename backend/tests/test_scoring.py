@@ -372,11 +372,10 @@ def test_metrics_rank_ic_and_brier_10_calls() -> None:
     # sorted: -70, -60, -20, -10, 0, 30, 40, 80, 80, 90
     # ranks:  1,   2,   3,   4,  5,  6,  7, 8.5, 8.5, 10
     # forward_return ranks (descending, all unique): 1,2,3,4,5,6,7,8,9,10
-    # Pearson correlation on ranks -> we just verify it computes without error
-    assert result["rank_ic"] is not None
-    assert isinstance(result["rank_ic"], float)
-    assert result["rank_ic_t"] is not None
-    assert isinstance(result["rank_ic_t"], float)
+    # Pearson correlation on the ranks, recomputed independently by the inspector:
+    # rho = 0.51064, t = rho * sqrt((n-2)/(1-rho^2)) = 1.6798
+    assert result["rank_ic"] == pytest.approx(0.5106, abs=1e-4)
+    assert result["rank_ic_t"] == pytest.approx(1.68, abs=1e-2)
 
     # Brier score: confidence/100 vs (score > 0)
     # p = [0.9, 0.8, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1]
