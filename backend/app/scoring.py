@@ -5,13 +5,69 @@ All logic is testable in isolation.
 """
 from __future__ import annotations
 
+import json
 import math
 from bisect import bisect_right
 from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from . import db
+from .migrated_tables import call_outcomes_table, ledger_calls_table
+
 PRE_LEDGER_CUTOFF = datetime(2026, 9, 27, tzinfo=timezone.utc)
+
+
+def load_ledger_calls() -> list[dict[str, Any]]:
+    """Load committee_decision rows from ledger.read, payload parsed.
+
+    Returns:
+        List of dicts with keys: call_id, ticker, decision, confidence, recorded_at.
+        Only rows with call_type == "committee_decision" are returned.
+    """
+    with db.engine.connect() as conn:
+        rows = conn.execute(
+            db.select(ledger_calls_table).where(ledger_calls_table.c.call_type == "committee_decision").order_by(ledger_calls_table.c.seq)
+        ).fetchall()
+
+    out = []
+    for row in rows:
+        payload = json.loads(row.payload_json)
+        # Only include rows that have the required decision/confidence fields
+        decision = payload.get("decision")
+        confidence = payload.get("confidence")
+        if decision in ("BUY", "SELL", "HOLD") and confidence is not None:
+            out.append({
+                "call_id": row.call_id,
+                "ticker": row.ticker,
+                "decision": decision,
+                "confidence": confidence,
+                "recorded_at": row.recorded_at,
+            })
+    return out
+
+
+def load_outcomes() -> list[dict[str, Any]]:
+    """Load rows from call_outcomes with outcome_json parsed.
+
+    Returns:
+        List of dicts with keys: call_id, horizon, evaluated_at, outcome_json (parsed), score.
+    """
+    with db.engine.connect() as conn:
+        rows = conn.execute(
+            db.select(call_outcomes_table).order_by(call_outcomes_table.c.call_id, call_outcomes_table.c.horizon)
+        ).fetchall()
+
+    out = []
+    for row in rows:
+        out.append({
+            "call_id": row.call_id,
+            "horizon": row.horizon,
+            "evaluated_at": row.evaluated_at,
+            "outcome_json": json.loads(row.outcome_json),
+            "score": row.score,
+        })
+    return out
 
 
 def _sign(decision: str) -> int:

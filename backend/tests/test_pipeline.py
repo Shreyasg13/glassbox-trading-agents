@@ -95,7 +95,7 @@ def test_a_normal_day_runs_every_stage_in_order_and_records_it(real_db):
     clock, calls = Clock(utc(2026, 9, 21, 20, 35)), Calls()
     out = PL.run(clock.now, clock.sleep, lambda: synced("2026-09-21"), stages(calls))
     assert out["status"] == "ok" and out["exit_code"] == 0 and out["target"] == "2026-09-21"
-    assert calls.order == ["free_data", "committee", "paper_cycle", "weekly_research", "snapshot", "mirror", "notifications", "digest_email", "user_digests"]
+    assert calls.order == ["free_data", "committee", "paper_cycle", "score_ledger", "weekly_research", "snapshot", "mirror", "notifications", "digest_email", "user_digests"]
     assert clock.slept == []  # the close was already final: no waiting, no polling
     rec = PL.last_status()
     assert rec["target"] == "2026-09-21" and all(v["ok"] for v in rec["stages"].values()) and rec["sync"]["coverage"] == 1.0
