@@ -15,11 +15,17 @@ from .routers import inbox as inbox_routes
 from .routers import public as public_routes
 from .routers import user_digest as user_digest_routes
 from .auth import require_role
+from .route_inventory import iter_routes
 
 app = FastAPI(
     title="GlassBox API",
-    description="FastAPI gateway over the multi-agent-trading-system engine.",
+    description="GlassBox is a verification-first research committee. Research only, not investment advice. "
+               "Auth = Bearer token from POST /auth/login; user routes need that token; rate limits apply.",
     version="0.1.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+    swagger_ui_oauth2_redirect_url="/api/docs/oauth2-redirect",
 )
 
 request_logger = setup_logging()
@@ -128,3 +134,37 @@ app.include_router(ledger.router)
 @app.get("/health", tags=["meta"], dependencies=[Depends(require_role("public"))])
 async def health():
     return {"status": "ok"}
+
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    from fastapi.openapi.utils import get_openapi
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    # Hide admin operations: EXACT (method, path) pairs whose route declares the admin role, plus anything under
+    # /api/admin. Exact matching only; a suffix match would also hide public routes such as /health.
+    admin_ops = set()
+    for method, path, roles, _ in iter_routes():
+        if "admin" in roles or path.startswith("/api/admin"):
+            for m in method.split(","):
+                admin_ops.add((m.strip().lower(), path))
+    paths = schema.get("paths", {})
+    for path in list(paths):
+        if path.startswith("/api/admin"):
+            del paths[path]
+            continue
+        for m in list(paths[path]):
+            if (m.lower(), path) in admin_ops:
+                del paths[path][m]
+        if not paths[path]:
+            del paths[path]
+    app.openapi_schema = schema
+    return schema
+
+
+app.openapi = custom_openapi

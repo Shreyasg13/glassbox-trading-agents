@@ -1,4 +1,4 @@
-GET /docs  # FastAPI built-in
-GET /docs/oauth2-redirect  # FastAPI built-in
-GET /openapi.json  # FastAPI built-in
-GET /redoc  # FastAPI built-in
+GET /api/docs  # FastAPI built-in
+GET /api/docs/oauth2-redirect  # FastAPI built-in
+GET /api/openapi.json  # FastAPI built-in
+GET /api/redoc  # FastAPI built-in
