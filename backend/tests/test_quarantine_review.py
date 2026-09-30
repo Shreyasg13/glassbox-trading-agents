@@ -279,3 +279,18 @@ def test_recheck_quarantine_item_a7_passes_once_the_narrative_is_fixed(qdb):
 
 def test_recheck_quarantine_item_no_content_ref_match_trivially_passes_a7(qdb):
     assert publish.recheck_quarantine_item({"run_id": None, "content_ref": "no-such-narrative", "channel": "committee_report"}) == (True, [])
+
+
+def test_an_already_decided_item_cannot_be_decided_again(qdb):
+    _seed_quarantine(qdb, "q-done-ok", run_id="run-done", status="approved")
+    _seed_quarantine(qdb, "q-done-no", status="rejected")
+    _seed_verification(qdb, "run-done", "pass")
+    c, app, dep = _client_as("admin")
+    try:
+        assert c.post("/api/admin/quarantine/q-done-ok/reject", json={"note": "changed my mind"}).status_code == 409
+        assert c.post("/api/admin/quarantine/q-done-no/approve", json={}).status_code == 409
+        assert c.post("/api/admin/quarantine/q-done-no/approve",
+                      json={"override_reason": "override a rejection"}).status_code == 409
+    finally:
+        app.dependency_overrides.pop(dep, None)
+    assert _row(qdb, "q-done-ok").status == "approved" and _row(qdb, "q-done-no").status == "rejected"

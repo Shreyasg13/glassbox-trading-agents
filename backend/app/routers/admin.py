@@ -576,6 +576,18 @@ def _quarantine_row_or_404(item_id: str):
     return row
 
 
+UNDECIDED_QUARANTINE_STATUSES = ("pending", "shadow")
+
+
+def _undecided_quarantine_row_or_409(item_id: str):
+    """The review routes decide an item once: approving a rejected item (or the reverse) silently would rewrite the audit
+    trail, so an already-decided item is a 409 and must be quarantined again to be re-reviewed."""
+    row = _quarantine_row_or_404(item_id)
+    if row.status not in UNDECIDED_QUARANTINE_STATUSES:
+        raise HTTPException(status_code=409, detail=f"Quarantine item already {row.status}")
+    return row
+
+
 def _quarantine_item_response(row) -> QuarantineItem:
     return QuarantineItem(
         id=row.id,
@@ -642,7 +654,7 @@ async def approve_quarantine(item_id: str, body: QuarantineApprove, user: TokenP
     """Re-run A6+A7 for the item's run/content. Passing -> approved. Still failing -> 409 with the
     failing checks, unless override_reason (>= 10 characters) is given, in which case it is approved
     anyway and the reason + reviewer are stored."""
-    row = _quarantine_row_or_404(item_id)
+    row = _undecided_quarantine_row_or_409(item_id)
     gates_ok, failing_checks = publish.recheck_quarantine_item(dict(row._mapping))
     if not gates_ok and not body.override_reason:
         raise HTTPException(
@@ -666,7 +678,7 @@ async def approve_quarantine(item_id: str, body: QuarantineApprove, user: TokenP
 @router.post("/quarantine/{item_id}/reject", response_model=QuarantineItem)
 async def reject_quarantine(item_id: str, body: QuarantineReject, user: TokenPayload = Depends(require_admin)):
     """Reject a quarantine item. A note is required."""
-    _quarantine_row_or_404(item_id)
+    _undecided_quarantine_row_or_409(item_id)
     with db.engine.begin() as conn:
         conn.execute(
             quarantine_items_table.update()
