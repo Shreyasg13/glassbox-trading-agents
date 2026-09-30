@@ -27,7 +27,8 @@ export function EvidencePanel({ narrativeId }: { narrativeId: string }) {
     retry: false,
   });
 
-  if (!token || isLoading || !data) return null;
+  // No checked numbers -> no badge at all: "Verified 0/0" would claim a check that never happened.
+  if (!token || isLoading || !data || data.claims.length === 0) return null;
 
   const selected = data.claims.find((c) => c.claim_id === selectedId) ?? null;
 

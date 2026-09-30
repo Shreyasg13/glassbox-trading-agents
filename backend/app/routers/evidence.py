@@ -17,8 +17,8 @@ Report narratives (db.get_report_narrative) do not carry that key today -- the
 daily digest report in committee_daily.py covers a whole day's decisions, not one
 run, and wiring that up is outside T7's file scope. This endpoint reads an
 optional "run_id" key from the stored narrative payload (nothing sets it in
-production yet); a narrative without one has no claims to show and is trivially
-"verified" (nothing to fail).
+production yet); a narrative without one has no claims to show and is NOT verified --
+"verified" is only ever claimed when at least one number was actually checked.
 """
 from __future__ import annotations
 
@@ -154,8 +154,8 @@ async def get_narrative_evidence(narrative_id: str, user: TokenPayload = Depends
 
     run_id = narrative.get("run_id")
     if not run_id:
-        return EvidenceResponse(verified=True, claims=[])
+        return EvidenceResponse(verified=False, claims=[])
 
     claims_out = _build_claims(run_id)
-    verified = all(c.passed for c in claims_out) if claims_out else True
+    verified = bool(claims_out) and all(c.passed for c in claims_out)  # nothing checked is never "verified"
     return EvidenceResponse(verified=verified, claims=claims_out)

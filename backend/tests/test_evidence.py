@@ -284,8 +284,8 @@ def test_unknown_narrative_returns_404(migrated):
     assert r.status_code == 404
 
 
-def test_narrative_without_a_run_id_has_no_claims_and_is_vacuously_verified(migrated):
+def test_narrative_without_a_run_id_has_no_claims_and_is_not_verified(migrated):
     _seed_narrative(run_id=None)
     r = _client(VIEWER).get(f"/api/reports/narratives/{NARRATIVE_ID}/evidence")
     assert r.status_code == 200
-    assert r.json() == {"verified": True, "claims": []}
+    assert r.json() == {"verified": False, "claims": []}
