@@ -273,6 +273,24 @@ def test_published_reports_appear_on_public_routes(report_db):
     assert body["status"] == "published" and body["body"]["week_start"] == week_start.isoformat()
 
 
+def test_public_routes_show_counts_only_no_reasons_no_publisher(report_db):
+    week_start = date(2026, 9, 21)
+    _seed_week(report_db, week_start)
+    draft = wr.create_draft_for_week(week_start)
+    wr.publish(draft["id"], "alice")
+    assert json.loads(wr.get(draft["id"])["body_json"])["top_failing_checks"], "seed must include failing checks"
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    client = TestClient(app)
+    listed = client.get("/api/public/weekly-reports")
+    detail = client.get(f"/api/public/weekly-reports/{draft['id']}")
+    assert listed.json()[0]["published_by"] is None and detail.json()["published_by"] is None
+    checks = detail.json()["body"]["top_failing_checks"]
+    assert checks and all(set(c) == {"check_type", "failures"} for c in checks)
+    assert "alice" not in listed.text + detail.text and "top_reason" not in detail.text
+
+
 def test_public_detail_404_for_an_unknown_id(report_db):
     from fastapi.testclient import TestClient
     from app.main import app

@@ -41,6 +41,20 @@ def _detail(row: Dict[str, Any]) -> WeeklyReportDetail:
     return WeeklyReportDetail(**_summary(row).model_dump(), body=json.loads(row["body_json"]))
 
 
+def _public_summary(row: Dict[str, Any]) -> WeeklyReportSummary:
+    """The public view never names the admin who published (an internal user id)."""
+    return _summary(row).model_copy(update={"published_by": None})
+
+
+def _public_detail(row: Dict[str, Any]) -> WeeklyReportDetail:
+    """Counts only in public (plan rule 5.1: failure reasons never leave admin): drop each check's top_reason."""
+    body = json.loads(row["body_json"])
+    body["top_failing_checks"] = [
+        {k: v for k, v in c.items() if k != "top_reason"} for c in body.get("top_failing_checks", [])
+    ]
+    return WeeklyReportDetail(**_public_summary(row).model_dump(), body=body)
+
+
 @admin_router.get("", response_model=List[WeeklyReportDetail], dependencies=[Depends(require_role("admin"))])
 async def list_reports_admin() -> List[WeeklyReportDetail]:
     """Every report, drafts and published, newest week first -- with its body, so admin can review a draft's
@@ -64,7 +78,7 @@ async def publish_report(report_id: str, user: TokenPayload = Depends(require_ro
 @public_router.get("", response_model=List[WeeklyReportSummary], dependencies=[Depends(require_role("public"))])
 async def list_reports_public() -> List[WeeklyReportSummary]:
     """Published reports only, newest week first. Drafts never appear here."""
-    return [_summary(r) for r in await run_in_threadpool(wr.list_reports, "published")]
+    return [_public_summary(r) for r in await run_in_threadpool(wr.list_reports, "published")]
 
 
 @public_router.get("/{report_id}", response_model=WeeklyReportDetail, dependencies=[Depends(require_role("public"))])
@@ -73,4 +87,4 @@ async def get_report_public(report_id: str) -> WeeklyReportDetail:
     row = await run_in_threadpool(wr.get, report_id)
     if row is None or row["status"] != "published":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Weekly report not found")
-    return _detail(row)
+    return _public_detail(row)
