@@ -163,6 +163,44 @@ def _create_quarantine_item(
 
 
 # ---------------------------------------------------------------------------
+# Quarantine review re-check (S3 T6): re-runs A6+A7 for ONE already-quarantined
+# item so the admin approve route can decide whether it passes now, without
+# touching publish() itself.
+# ---------------------------------------------------------------------------
+
+def recheck_quarantine_item(item: Dict[str, Any]) -> Tuple[bool, List[str]]:
+    """Re-run the A6 gate (if the item has a run_id) and the A7 filter (if the item's current
+    text can still be found) for one quarantine item. Returns (ok, reasons); reasons explains
+    every failing check, same wording as `_a6_check`/`_a7_check` use elsewhere.
+
+    A7 can only be re-checked for channels whose text is stored and retrievable by content_ref
+    (the report-narrative channels, via db.get_report_narrative) -- for channels that only ever
+    send (digests, tts) there is nothing left to re-check, so A7 counts as still passing.
+    """
+    reasons: List[str] = []
+
+    run_id = item.get("run_id")
+    a6_ok = True
+    if run_id:
+        a6_ok, a6_reasons = _a6_check((run_id,))
+        reasons.extend(a6_reasons)
+
+    a7_ok = True
+    content_ref = item.get("content_ref")
+    if content_ref:
+        narrative_row = db.get_report_narrative(content_ref)
+        text = narrative_row.get("narrative") if narrative_row else None
+        if text:
+            result = compliance.filter.check(text, channel=item.get("channel", ""))
+            if result.action == "blocked":
+                a7_ok = False
+                rule_ids = ", ".join(e.get("rule_id", "") for e in result.events) or "compliance filter"
+                reasons.append(f"A7 blocked: {rule_ids}")
+
+    return a6_ok and a7_ok, reasons
+
+
+# ---------------------------------------------------------------------------
 # Channel-specific writer functions (the ONLY place raw writers are called)
 # ---------------------------------------------------------------------------
 
