@@ -3,6 +3,7 @@
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
+import { EvidencePanel } from "@/components/EvidencePanel";
 import { GlassPanel } from "@/components/GlassPanel";
 import { GuideBubble } from "@/components/onboarding/GuideBubble";
 import { PortfolioValueChart } from "@/components/reports/PortfolioValueChart";
@@ -40,6 +41,8 @@ export default function ReportDetailPage() {
       <GlassPanel variant="raised">
         <p className="whitespace-pre-wrap text-[14px] leading-relaxed text-t1">{data.narrative}</p>
       </GlassPanel>
+
+      <EvidencePanel narrativeId={data.id} />
 
       <div className="grid grid-cols-1 gap-sp5 lg:grid-cols-2">
         <PortfolioValueChart />

@@ -108,6 +108,25 @@ export type DailyReportNarrative = {
   profile?: string | null;
 };
 
+// ---- "Show my work" evidence view (S3 T7) ----
+// GET /api/reports/narratives/{id}/evidence -- deliberately never carries failure
+// reasons, raw snapshot payloads, check names or quarantine details; see backend/app/routers/evidence.py.
+export type EvidenceClaim = {
+  claim_id: string;
+  label: string; // metric name, e.g. "revenue_growth"
+  value: number;
+  unit: string;
+  source: string; // friendly source label, e.g. "SEC", "BLS", "Market data"
+  field_path: string | null;
+  as_of: string | null;
+  passed: boolean;
+};
+
+export type NarrativeEvidence = {
+  verified: boolean;
+  claims: EvidenceClaim[];
+};
+
 export const DEFAULT_AGENT_PARAMS: AgentParams = {
   temperature: 0.7,
   top_p: 1.0,
