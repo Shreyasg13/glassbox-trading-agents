@@ -7,7 +7,7 @@
 # dependency ships prebuilt wheels, so the ~320 MB build-essential toolchain the
 # old single-stage image carried was pure dead weight at runtime.
 
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 WORKDIR /build
 # Only needed if a dependency ever lacks a wheel for this platform.
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
@@ -17,7 +17,7 @@ COPY requirements.txt .
 # never silently pull in a different major version.
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 WORKDIR /app
 COPY --from=builder /install /usr/local
 COPY app ./app
