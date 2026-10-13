@@ -41,7 +41,8 @@ def load_ledger_calls() -> list[dict[str, Any]]:
                 "call_id": row.call_id,
                 "ticker": row.ticker,
                 "decision": decision,
-                "confidence": confidence,
+                # publish.py writes the vote share as 0-1; metrics() expects 0-100.
+                "confidence": confidence * 100 if confidence <= 1 else confidence,
                 "recorded_at": row.recorded_at,
             })
     return out
@@ -327,7 +328,7 @@ def metrics(scored: list[dict[str, Any]], min_n: int = 10) -> dict[str, Any]:
     for bin_idx in range(5):
         lo = bin_idx * 20
         hi = (bin_idx + 1) * 20
-        bin_calls = [c for c in scored if lo <= c["confidence"] < hi]
+        bin_calls = [c for c in scored if lo <= c["confidence"] < hi or (hi == 100 and c["confidence"] == 100)]
         if bin_calls:
             mean_conf = sum(c["confidence"] for c in bin_calls) / len(bin_calls)
             obs_hit = sum(1 for c in bin_calls if c["score"] > 0) / len(bin_calls)
