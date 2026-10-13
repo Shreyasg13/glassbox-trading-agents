@@ -25,9 +25,9 @@ Last updated 2026-10-13. Dates ahead are planned; when one slips, the old date s
 ```
 Oct 2026   14 L0 DSR fix · 17 T6 quarantine UI · 19 enforce on (owner) · 21 T7 Show my work
            23 L1 Lab + Strategies tab · 23 T13 first weekly report · 28 L2 Models tab · 30 L3 Market tab
-Nov 2026   02 apply: Anthropic External Researcher Access (after attorney check, owner) · 20 L8 glassbox-eval package
+Nov 2026   02 apply: Anthropic External Researcher Access (after attorney check, owner)
            06 L4 cost-impact surface (3D) · 13 L5 auto-calibration built · 13 fourth weekly report (S3 exit possible)
-           16 P5 checkpoint (gate) · 24 L5 first out-of-sample calibration result
+           16 P5 checkpoint (gate) · 20 L8 glassbox-eval package · 24 L5 first out-of-sample calibration result
 Dec 2026   04 L6 challenger loop · ~15 P4 checkpoint (committee vs placebo, 60 live days) · 18 L9 multi-model leaderboard
            31 fixed checkpoint: study refresh (L7)
 Jan 2027   13 literature re-check (quarterly) · ~15 P1-P3 checkpoint (400 P(beat SPY) calls, 60+ dates) · 29 L10 paper draft
