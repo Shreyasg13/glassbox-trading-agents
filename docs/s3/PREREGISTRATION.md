@@ -53,4 +53,9 @@ fixes the rules **before** more data arrives, so a later result cannot be a clai
 
 ## Amendments
 
-(none)
+**2026-10-12 (same day, before any `p_beat_spy` outcome exists).** Two tests added; nothing loosened.
+- P1 also requires the **date-blocked shuffle test** (`scoring.shuffle_test`, 10,000 shuffles of `p_beat_spy`
+  among calls with the same entry date) to give p < 0.01.
+- P4 also requires a **deflated Sharpe ratio** (`research.deflated_sharpe`, Bailey & Lopez de Prado 2014) above
+  0.95 for `ctl_committee`, with every evidence-table candidate counted as a trial.
+- All numbers come from one read-only command: `python -m app.scripts.forward_study`.
