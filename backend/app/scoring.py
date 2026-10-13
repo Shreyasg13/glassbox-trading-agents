@@ -44,6 +44,7 @@ def load_ledger_calls() -> list[dict[str, Any]]:
                 # publish.py writes the vote share as 0-1; metrics() expects 0-100.
                 "confidence": confidence * 100 if confidence <= 1 else confidence,
                 "recorded_at": row.recorded_at,
+                "p_beat_spy": payload.get("p_beat_spy"),
             })
     return out
 
@@ -288,6 +289,7 @@ def metrics(scored: list[dict[str, Any]], min_n: int = 10) -> dict[str, Any]:
             "brier": None,
             "calibration": None,
             "reason": "too few calls",
+            "p_beat_spy": prob_metrics(scored, min_n),
         }
 
     # Hit rate: share where score > 0
@@ -355,6 +357,42 @@ def metrics(scored: list[dict[str, Any]], min_n: int = 10) -> dict[str, Any]:
         "rank_ic": round(rho, 4) if rho is not None else None,
         "rank_ic_t": round(t_stat, 2) if t_stat is not None else None,
         "brier": round(brier, 4),
+        "calibration": calibration,
+        "reason": None,
+        "p_beat_spy": prob_metrics(scored, min_n),
+    }
+
+
+def prob_metrics(scored: list[dict[str, Any]], min_n: int = 10) -> dict[str, Any]:
+    """Score the committee's P(beat SPY) on every call, HOLD included: outcome = excess_return > 0.
+
+    Rows without p_beat_spy (calls recorded before the field existed) and SPY itself (excess is 0 by
+    construction) are left out. Brier, rank IC of p vs excess return, and 5 calibration bins.
+    """
+    rows = [c for c in scored if c.get("p_beat_spy") is not None and c.get("symbol", c.get("ticker")) != "SPY"]
+    n = len(rows)
+    if n < min_n:
+        return {"count": n, "brier": None, "base_rate": None, "rank_ic": None, "rank_ic_t": None, "calibration": None, "reason": "too few calls"}
+    outcome = [1.0 if c["excess_return"] > 0 else 0.0 for c in rows]
+    probs = [c["p_beat_spy"] / 100.0 for c in rows]
+    rho = _spearman_rho(probs, [c["excess_return"] for c in rows])
+    calibration = []
+    for k in range(5):
+        lo, hi = k * 0.2, (k + 1) * 0.2
+        idx = [i for i, p in enumerate(probs) if lo <= p < hi or (k == 4 and p == 1.0)]
+        calibration.append({
+            "bin": k,
+            "p_range": f"{k * 20}-{(k + 1) * 20}",
+            "n": len(idx),
+            "mean_p": round(sum(probs[i] for i in idx) / len(idx), 3) if idx else None,
+            "observed_rate": round(sum(outcome[i] for i in idx) / len(idx), 3) if idx else None,
+        })
+    return {
+        "count": n,
+        "brier": round(sum((p - o) ** 2 for p, o in zip(probs, outcome)) / n, 4),
+        "base_rate": round(sum(outcome) / n, 3),  # always-say-base-rate Brier is base_rate*(1-base_rate)
+        "rank_ic": round(rho, 4) if rho is not None else None,
+        "rank_ic_t": round(_spearman_t_stat(rho, n), 2) if rho is not None and _spearman_t_stat(rho, n) is not None else None,
         "calibration": calibration,
         "reason": None,
     }

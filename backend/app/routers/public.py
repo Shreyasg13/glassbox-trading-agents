@@ -52,6 +52,7 @@ async def track_record_summary() -> dict[str, Any]:
                     "benchmark_return": ojson.get("benchmark_return"),
                     "excess_return": ojson.get("excess_return"),
                     "score": oc["score"],
+                    "p_beat_spy": call.get("p_beat_spy"),
                     "right": oc["score"] > 0,
                 })
 
@@ -70,6 +71,7 @@ async def track_record_summary() -> dict[str, Any]:
                 "hit_rate": m["hit_rate"],
                 "mean_excess_return": m["mean_excess_return"],
                 "rank_ic": m["rank_ic"],
+                "p_beat_spy": {k: m["p_beat_spy"][k] for k in ("count", "brier", "base_rate", "rank_ic")},
             }
         return summary
 

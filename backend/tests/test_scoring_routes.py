@@ -149,7 +149,7 @@ class TestLedgerTrackRecordRoute:
             assert set(sc.keys()) == {
                 "call_id", "symbol", "decision", "confidence", "recorded_at",
                 "recorded_label", "horizon", "entry_date", "exit_date",
-                "forward_return", "benchmark_return", "excess_return", "score", "right"
+                "forward_return", "benchmark_return", "excess_return", "score", "p_beat_spy", "right"
             }
             # Check recorded_label
             assert sc["recorded_label"] == "recorded before outcome"
@@ -219,7 +219,7 @@ class TestPublicTrackRecordSummaryRoute:
             assert set(body.keys()) == {"1", "5", "20"}
             for h in ("1", "5", "20"):
                 m = body[h]
-                assert set(m.keys()) == {"count", "hit_rate", "mean_excess_return", "rank_ic"}
+                assert set(m.keys()) == {"count", "hit_rate", "mean_excess_return", "rank_ic", "p_beat_spy"}
                 assert m["count"] == 3
 
     def test_no_call_id_or_symbol_in_response(self, real_db, monkeypatch):

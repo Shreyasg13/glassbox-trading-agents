@@ -505,3 +505,16 @@ def test_load_ledger_calls_scales_vote_share_to_percent(monkeypatch):
 def test_calibration_top_bin_includes_100():
     rows = [{"decision": "BUY", "confidence": 100, "score": 0.01, "excess_return": 0.01, "forward_return": 0.01 * i} for i in range(10)]
     assert scoring.metrics(rows)["calibration"][4]["n"] == 10
+
+
+def test_prob_metrics_scores_hold_calls_and_skips_spy():
+    """P(beat SPY) makes HOLD scorable: outcome is excess > 0 regardless of decision; SPY and p=None rows are left out."""
+    rows = [{"decision": "HOLD", "ticker": "AAPL", "p_beat_spy": 80, "excess_return": 0.01}] * 6 \
+         + [{"decision": "HOLD", "ticker": "MSFT", "p_beat_spy": 20, "excess_return": -0.01}] * 6 \
+         + [{"decision": "HOLD", "ticker": "SPY", "p_beat_spy": 50, "excess_return": 0.0},
+            {"decision": "HOLD", "ticker": "V", "p_beat_spy": None, "excess_return": 0.02}]
+    m = scoring.prob_metrics(rows)
+    assert m["count"] == 12 and m["base_rate"] == 0.5
+    assert m["brier"] == 0.04  # (0.8-1)^2 and (0.2-0)^2
+    assert [b["n"] for b in m["calibration"]] == [0, 6, 0, 0, 6]
+    assert scoring.prob_metrics(rows[:5])["reason"] == "too few calls"
