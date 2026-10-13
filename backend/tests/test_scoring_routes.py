@@ -149,7 +149,7 @@ class TestLedgerTrackRecordRoute:
             assert set(sc.keys()) == {
                 "call_id", "symbol", "decision", "confidence", "recorded_at",
                 "recorded_label", "horizon", "entry_date", "exit_date",
-                "forward_return", "benchmark_return", "excess_return", "right"
+                "forward_return", "benchmark_return", "excess_return", "score", "right"
             }
             # Check recorded_label
             assert sc["recorded_label"] == "recorded before outcome"
@@ -265,3 +265,17 @@ class TestTrackRecordRegression:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+def test_metrics_computed_once_n_reaches_min(real_db, monkeypatch):
+    """Regression: with >= 10 scored calls metrics() runs and needs each row's score (was KeyError -> 500)."""
+    calls = [{"call_id": f"2026-10-0{i % 9 + 1}:S{i}", "ticker": f"S{i}", "decision": "BUY", "confidence": 60 + i, "recorded_at": "2026-10-01T20:00:00+00:00"} for i in range(12)]
+    outs = [{"call_id": c["call_id"], "horizon": 1, "evaluated_at": "x", "score": 0.01 * (i - 5),
+             "outcome_json": {"forward_return": 0.01 * i, "benchmark_return": 0.0, "excess_return": 0.01 * (i - 5)}} for i, c in enumerate(calls)]
+    monkeypatch.setattr(scoring, "load_ledger_calls", lambda: calls)
+    monkeypatch.setattr(scoring, "load_outcomes", lambda: outs)
+    with TestClient(app) as client:
+        r = client.get("/api/public/track-record/summary")
+        assert r.status_code == 200, r.text
+        assert r.json()["1"]["count"] == 12 and r.json()["1"]["rank_ic"] is not None
+        r = client.get("/api/me/ledger-track-record", headers=_hdr("u1", "viewer"))
+        assert r.status_code == 200, r.text

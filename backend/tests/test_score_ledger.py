@@ -488,3 +488,20 @@ from sqlalchemy import create_engine
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+def test_load_ledger_calls_scales_vote_share_to_percent(monkeypatch):
+    """publish.py stores confidence as a 0-1 vote share; metrics() bins 0-100, so the loader scales it."""
+    import types
+    rows = [types.SimpleNamespace(call_id="c1", ticker="AAPL", recorded_at="t", payload_json='{"decision": "HOLD", "confidence": 0.88}'),
+            types.SimpleNamespace(call_id="c2", ticker="MSFT", recorded_at="t", payload_json='{"decision": "BUY", "confidence": 90}')]
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, *_): return types.SimpleNamespace(fetchall=lambda: rows)
+    monkeypatch.setattr(scoring.db.engine, "connect", lambda: Conn())
+    assert [c["confidence"] for c in scoring.load_ledger_calls()] == [88.0, 90]
+
+
+def test_calibration_top_bin_includes_100():
+    rows = [{"decision": "BUY", "confidence": 100, "score": 0.01, "excess_return": 0.01, "forward_return": 0.01 * i} for i in range(10)]
+    assert scoring.metrics(rows)["calibration"][4]["n"] == 10
