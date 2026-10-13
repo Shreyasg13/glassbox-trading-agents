@@ -40,6 +40,9 @@ Each milestone is one branch `s4/<id>-<slug>` and one PR. Sizes as in S3: S unde
 | L4 | **Cost-impact surface** (3D): rule-engine excess return over cost (bps) × rebalance band, on history | M | L1 | 2026-11-06 | Labelled "historical, in-sample"; flat heatmap fallback on phones; data cached, not computed per request |
 | L5 | **Auto-calibration**: per model isotonic map, walk-forward (fit on calls older than 20 trading days, score the next 5), raw vs calibrated Brier | L | L2, about 200 scored calls per model | build 2026-11-13, first out-of-sample result 2026-11-24 | A map is switched on per model only if calibrated Brier < raw on the held-out window; before/after shown in Models tab |
 | L6 | **Challenger loop**: variants as versioned config with parent → child lineage, created as shadow paper accounts (max 3 a month), lineage view, promote button behind the gate | L | L1, L0 | 2026-12-04 | Test proves a challenger cannot reach any user channel; promotion requires gate "pass" and an admin action, logged in the audit log |
+| L8 | **`glassbox-eval` package**: framework-neutral pip package (ledger, forward-only eligibility, pre-registration template, shuffle test, deflated Sharpe, rationale-number audit, P(beat SPY) calibration) with an example that scores TradingAgents output | M | L0 | 2026-11-20 | Installs and runs without the GlassBox stack; example in the README |
+| L9 | **Multi-model leaderboard** (public): headline Brier/calibration of P(beat SPY 5d) per model, second axis unsupported-number share, returns as a secondary column; placebo and base-rate baselines | L | L2, L8, API credits | 2026-12-18 | Per-model n and CIs; "insufficient" below the pre-registered minimum |
+| L10 | **Workshop paper**: forward-only, pre-registered evaluation; traceability and calibration results | M | P1-P3 checkpoint | draft 2027-01-29 | Related work from `docs/research/reports/`; limits stated |
 | L7 | **Study refresh**: regenerate the forward study page from `forward_study` at each pre-registered checkpoint | S | each checkpoint | 2026-12-31, 2027-03-31 | Every checkpoint published, including null results |
 
 ## 4. S3 work that S4 relies on (still open)
@@ -82,3 +85,4 @@ Each milestone is one branch `s4/<id>-<slug>` and one PR. Sizes as in S3: S unde
 | Date | Milestone | Summary | PR |
 |---|---|---|---|
 | 2026-10-13 | — | Plan written | `docs/roadmap-s4` |
+| 2026-10-13 | L8-L10 | Added after the literature review (`docs/research/reports/LLM trading benchmark gaps and funding.md`): calibration and rationale faithfulness are the least occupied niches; live trading leaderboards are crowded | `docs/roadmap-s4` |
