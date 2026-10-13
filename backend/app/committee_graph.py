@@ -55,13 +55,16 @@ class AnalystView(BaseModel):
     confidence: int = Field(ge=0, le=100)
     risk_level: Literal["LOW", "MEDIUM", "HIGH"] = "MEDIUM"
     rationale: str = ""
+    # Probability (0-100) this symbol beats SPY over the next 5 trading days. Optional so an answer without it
+    # still counts; it is what makes HOLD calls scorable (see docs/s3/PREREGISTRATION.md).
+    p_beat_spy: Optional[int] = Field(default=None, ge=0, le=100)
 
     @field_validator("decision", "risk_level", mode="before")
     @classmethod
     def _upper(cls, v: Any) -> Any:
         return v.strip().upper() if isinstance(v, str) else v
 
-    @field_validator("confidence", mode="before")
+    @field_validator("confidence", "p_beat_spy", mode="before")
     @classmethod
     def _number(cls, v: Any) -> Any:
         if isinstance(v, str):
@@ -78,7 +81,8 @@ FORMAT_INSTRUCTIONS = (
     "Reply with ONLY one JSON object -- no markdown, no text before or after -- with exactly these keys: "
     '"decision" (one of "BUY", "SELL", "HOLD"), "confidence" (an integer 0-100: how sure you are, '
     'where 50 means a coin flip), "risk_level" (one of "LOW", "MEDIUM", "HIGH": how risky holding this '
-    'is right now) and "rationale" (2-3 sentences using ONLY the numbers above -- do not invent news, '
+    'is right now), "p_beat_spy" (an integer 0-100: the probability that this symbol returns more than SPY over the '
+    'next 5 trading days, where 50 means no edge; give it even when you choose HOLD) and "rationale" (2-3 sentences using ONLY the numbers above -- do not invent news, '
     "earnings, prices or events). If the data does not justify a change, choose HOLD."
 )
 
@@ -260,6 +264,9 @@ def _aggregate(state: CommitteeState) -> Dict[str, Any]:
         if "view" in r:
             risk_votes[r["view"]["risk_level"]] += 1
     vote["analyst_risk"] = risk_votes
+    ps = [r["view"]["p_beat_spy"] for r in rows if "view" in r and r["view"].get("p_beat_spy") is not None]
+    vote["p_beat_spy"] = round(sum(ps) / len(ps), 1) if ps else None
+    vote["p_beat_spy_n"] = len(ps)
     return {"results": rows, "committee_decision": vote}
 
 
