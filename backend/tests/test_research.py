@@ -188,3 +188,21 @@ def test_deflated_sharpe_penalises_many_trials():
     assert 0 <= many["dsr"] < few["dsr"] <= 1
     assert many["expected_max_sharpe"] > few["expected_max_sharpe"]
     assert research.deflated_sharpe(xs[:2], [0.1, 0.2]) is None and research.deflated_sharpe(xs, [0.1]) is None
+
+
+def test_evidence_table_deflated_sharpe_is_on_excess_over_placebo():
+    # rising market, no skill: candidates and placebo share the market move and differ only by noise
+    market = noise(120, 0.003, 0.01, 7)
+    no_skill = lambda s: [m + e for m, e in zip(market, noise(120, 0.0, 0.002, s))]
+    accounts = [acct("ctl_placebo", no_skill(1)), acct("ctl_engine", no_skill(2)), acct("ctl_trend", no_skill(3)),
+                acct("ctl_committee", [m + e for m, e in zip(market, noise(120, 0.002, 0.002, 4))])]  # real edge over placebo
+    rows = {r["id"]: r for r in research.evidence_table(accounts)}
+    assert research.deflated_sharpe(list(research.live_returns(accounts[1]).values()), [0.0, 0.01])["dsr"] > 0.95  # raw: passes by riding the market
+    assert rows["ctl_engine"]["deflated_sharpe"]["vs"] == "ctl_placebo"
+    assert rows["ctl_engine"]["deflated_sharpe"]["dsr"] < 0.95 and rows["ctl_trend"]["deflated_sharpe"]["dsr"] < 0.95
+    assert rows["ctl_committee"]["deflated_sharpe"]["dsr"] > 0.95
+
+
+def test_evidence_table_deflated_sharpe_none_without_placebo():
+    rows = research.evidence_table([acct("ctl_engine", noise(80, 0.001, 0.01, 2)), acct("ctl_equal", noise(80, 0.0, 0.01, 3))])
+    assert rows[0]["deflated_sharpe"] is None

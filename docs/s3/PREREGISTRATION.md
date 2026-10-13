@@ -59,3 +59,9 @@ fixes the rules **before** more data arrives, so a later result cannot be a clai
 - P4 also requires a **deflated Sharpe ratio** (`research.deflated_sharpe`, Bailey & Lopez de Prado 2014) above
   0.95 for `ctl_committee`, with every evidence-table candidate counted as a trial.
 - All numbers come from one read-only command: `python -m app.scripts.forward_study`.
+
+**2026-10-13 (S4 L0).** P4's deflated Sharpe is computed on the **daily excess return over `ctl_placebo`**, not on raw
+returns, and the trial set is every candidate's excess Sharpe. Reason: on raw returns any mostly-long strategy in a rising
+market clears 0.95 without skill (shown by a test). This makes P4 stricter, not looser. Disclosure: 16 live paper days had
+already been observed when this changed; the raw-return DSRs then were all below 0.95 (0.69 to 0.73), so the change did
+not turn a fail into a pass.
