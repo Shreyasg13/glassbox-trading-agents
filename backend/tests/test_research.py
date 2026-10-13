@@ -177,3 +177,14 @@ def test_the_view_bundles_associations_evidence_and_the_latest_digest(fake_db):
     v = research.view(book)
     assert v["min_live_days"] == research.MIN_LIVE_DAYS and v["associations"]["symbols"] == 3 and v["evidence"] == [] and v["proposals"] == []
     assert v["latest_digest"]["title"] == research.DIGEST_TITLE and "Weekly research digest" in v["latest_digest"]["narrative"]
+
+
+def test_deflated_sharpe_penalises_many_trials():
+    import random as _r
+    rnd = _r.Random(1)
+    xs = [0.001 + rnd.gauss(0, 0.01) for _ in range(250)]
+    few = research.deflated_sharpe(xs, [0.0, 0.01])
+    many = research.deflated_sharpe(xs, [rnd.gauss(0, 0.05) for _ in range(50)])
+    assert 0 <= many["dsr"] < few["dsr"] <= 1
+    assert many["expected_max_sharpe"] > few["expected_max_sharpe"]
+    assert research.deflated_sharpe(xs[:2], [0.1, 0.2]) is None and research.deflated_sharpe(xs, [0.1]) is None
