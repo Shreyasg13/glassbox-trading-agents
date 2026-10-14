@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import math
+import random
 from bisect import bisect_right
 from datetime import datetime, timezone
 from typing import Any
@@ -41,8 +42,10 @@ def load_ledger_calls() -> list[dict[str, Any]]:
                 "call_id": row.call_id,
                 "ticker": row.ticker,
                 "decision": decision,
-                "confidence": confidence,
+                # publish.py writes the vote share as 0-1; metrics() expects 0-100.
+                "confidence": confidence * 100 if confidence <= 1 else confidence,
                 "recorded_at": row.recorded_at,
+                "p_beat_spy": payload.get("p_beat_spy"),
             })
     return out
 
@@ -287,6 +290,7 @@ def metrics(scored: list[dict[str, Any]], min_n: int = 10) -> dict[str, Any]:
             "brier": None,
             "calibration": None,
             "reason": "too few calls",
+            "p_beat_spy": prob_metrics(scored, min_n),
         }
 
     # Hit rate: share where score > 0
@@ -327,7 +331,7 @@ def metrics(scored: list[dict[str, Any]], min_n: int = 10) -> dict[str, Any]:
     for bin_idx in range(5):
         lo = bin_idx * 20
         hi = (bin_idx + 1) * 20
-        bin_calls = [c for c in scored if lo <= c["confidence"] < hi]
+        bin_calls = [c for c in scored if lo <= c["confidence"] < hi or (hi == 100 and c["confidence"] == 100)]
         if bin_calls:
             mean_conf = sum(c["confidence"] for c in bin_calls) / len(bin_calls)
             obs_hit = sum(1 for c in bin_calls if c["score"] > 0) / len(bin_calls)
@@ -354,6 +358,88 @@ def metrics(scored: list[dict[str, Any]], min_n: int = 10) -> dict[str, Any]:
         "rank_ic": round(rho, 4) if rho is not None else None,
         "rank_ic_t": round(t_stat, 2) if t_stat is not None else None,
         "brier": round(brier, 4),
+        "calibration": calibration,
+        "reason": None,
+        "p_beat_spy": prob_metrics(scored, min_n),
+    }
+
+
+def _prob_rows(scored: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [c for c in scored if c.get("p_beat_spy") is not None and c.get("symbol", c.get("ticker")) != "SPY"]
+
+
+def shuffle_test(scored: list[dict[str, Any]], n_perm: int = 10000, seed: int = 20261012, min_n: int = 10) -> dict[str, Any]:
+    """Does P(beat SPY) know anything? Shuffle the probabilities among calls with the SAME entry date (so a
+    market-wide day moves every shuffled call alike) and count how often a shuffle scores a Brier at least as
+    good as the real one. p_value = (1 + that count) / (1 + n_perm). Pre-registered in docs/s3/PREREGISTRATION.md.
+    """
+    rows = [c for c in _prob_rows(scored) if c.get("entry_date")]
+    n = len(rows)
+    if n < min_n:
+        return {"count": n, "brier": None, "null_mean_brier": None, "p_value": None, "reason": "too few calls"}
+    outcome = [1.0 if c["excess_return"] > 0 else 0.0 for c in rows]
+    probs = [c["p_beat_spy"] / 100.0 for c in rows]
+    by_date: dict[str, list[int]] = {}
+    for i, c in enumerate(rows):
+        by_date.setdefault(c["entry_date"], []).append(i)
+
+    def brier(ps: list[float]) -> float:
+        return sum((p - o) ** 2 for p, o in zip(ps, outcome)) / n
+
+    observed = brier(probs)
+    rnd = random.Random(seed)
+    as_good, total = 0, 0.0
+    perm = probs[:]
+    for _ in range(n_perm):
+        for idx in by_date.values():
+            vals = [probs[i] for i in idx]
+            rnd.shuffle(vals)
+            for i, v in zip(idx, vals):
+                perm[i] = v
+        b = brier(perm)
+        total += b
+        as_good += b <= observed
+    return {
+        "count": n,
+        "dates": len(by_date),
+        "brier": round(observed, 4),
+        "null_mean_brier": round(total / n_perm, 4),
+        "p_value": round((1 + as_good) / (1 + n_perm), 4),
+        "n_perm": n_perm,
+        "reason": None,
+    }
+
+
+def prob_metrics(scored: list[dict[str, Any]], min_n: int = 10) -> dict[str, Any]:
+    """Score the committee's P(beat SPY) on every call, HOLD included: outcome = excess_return > 0.
+
+    Rows without p_beat_spy (calls recorded before the field existed) and SPY itself (excess is 0 by
+    construction) are left out. Brier, rank IC of p vs excess return, and 5 calibration bins.
+    """
+    rows = _prob_rows(scored)
+    n = len(rows)
+    if n < min_n:
+        return {"count": n, "brier": None, "base_rate": None, "rank_ic": None, "rank_ic_t": None, "calibration": None, "reason": "too few calls"}
+    outcome = [1.0 if c["excess_return"] > 0 else 0.0 for c in rows]
+    probs = [c["p_beat_spy"] / 100.0 for c in rows]
+    rho = _spearman_rho(probs, [c["excess_return"] for c in rows])
+    calibration = []
+    for k in range(5):
+        lo, hi = k * 0.2, (k + 1) * 0.2
+        idx = [i for i, p in enumerate(probs) if lo <= p < hi or (k == 4 and p == 1.0)]
+        calibration.append({
+            "bin": k,
+            "p_range": f"{k * 20}-{(k + 1) * 20}",
+            "n": len(idx),
+            "mean_p": round(sum(probs[i] for i in idx) / len(idx), 3) if idx else None,
+            "observed_rate": round(sum(outcome[i] for i in idx) / len(idx), 3) if idx else None,
+        })
+    return {
+        "count": n,
+        "brier": round(sum((p - o) ** 2 for p, o in zip(probs, outcome)) / n, 4),
+        "base_rate": round(sum(outcome) / n, 3),  # always-say-base-rate Brier is base_rate*(1-base_rate)
+        "rank_ic": round(rho, 4) if rho is not None else None,
+        "rank_ic_t": round(_spearman_t_stat(rho, n), 2) if rho is not None and _spearman_t_stat(rho, n) is not None else None,
         "calibration": calibration,
         "reason": None,
     }

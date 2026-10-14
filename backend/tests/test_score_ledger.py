@@ -488,3 +488,57 @@ from sqlalchemy import create_engine
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+def test_load_ledger_calls_scales_vote_share_to_percent(monkeypatch):
+    """publish.py stores confidence as a 0-1 vote share; metrics() bins 0-100, so the loader scales it."""
+    import types
+    rows = [types.SimpleNamespace(call_id="c1", ticker="AAPL", recorded_at="t", payload_json='{"decision": "HOLD", "confidence": 0.88}'),
+            types.SimpleNamespace(call_id="c2", ticker="MSFT", recorded_at="t", payload_json='{"decision": "BUY", "confidence": 90}')]
+    class Conn:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, *_): return types.SimpleNamespace(fetchall=lambda: rows)
+    monkeypatch.setattr(scoring.db.engine, "connect", lambda: Conn())
+    assert [c["confidence"] for c in scoring.load_ledger_calls()] == [88.0, 90]
+
+
+def test_calibration_top_bin_includes_100():
+    rows = [{"decision": "BUY", "confidence": 100, "score": 0.01, "excess_return": 0.01, "forward_return": 0.01 * i} for i in range(10)]
+    assert scoring.metrics(rows)["calibration"][4]["n"] == 10
+
+
+def test_prob_metrics_scores_hold_calls_and_skips_spy():
+    """P(beat SPY) makes HOLD scorable: outcome is excess > 0 regardless of decision; SPY and p=None rows are left out."""
+    rows = [{"decision": "HOLD", "ticker": "AAPL", "p_beat_spy": 80, "excess_return": 0.01}] * 6 \
+         + [{"decision": "HOLD", "ticker": "MSFT", "p_beat_spy": 20, "excess_return": -0.01}] * 6 \
+         + [{"decision": "HOLD", "ticker": "SPY", "p_beat_spy": 50, "excess_return": 0.0},
+            {"decision": "HOLD", "ticker": "V", "p_beat_spy": None, "excess_return": 0.02}]
+    m = scoring.prob_metrics(rows)
+    assert m["count"] == 12 and m["base_rate"] == 0.5
+    assert m["brier"] == 0.04  # (0.8-1)^2 and (0.2-0)^2
+    assert [b["n"] for b in m["calibration"]] == [0, 6, 0, 0, 6]
+    assert scoring.prob_metrics(rows[:5])["reason"] == "too few calls"
+
+
+def _prob_rows(n_days=8, per_day=6, informative=True):
+    rows = []
+    for d in range(n_days):
+        for k in range(per_day):
+            beat = k % 2 == 0
+            p = (80 if beat else 20) if informative else 50
+            rows.append({"ticker": f"S{k}", "entry_date": f"2026-10-{d + 1:02d}", "p_beat_spy": p, "excess_return": 0.01 if beat else -0.01})
+    return rows
+
+
+def test_shuffle_test_separates_skill_from_noise():
+    good = scoring.shuffle_test(_prob_rows(), n_perm=500)
+    assert good["p_value"] < 0.01 and good["brier"] < good["null_mean_brier"]
+    flat = scoring.shuffle_test(_prob_rows(informative=False), n_perm=500)
+    assert flat["p_value"] == 1.0  # constant p: every shuffle ties the real Brier
+    assert scoring.shuffle_test(_prob_rows(n_days=1, per_day=5))["reason"] == "too few calls"
+
+
+def test_shuffle_only_within_entry_date():
+    # one call per day: nothing to swap, so every shuffle equals the real score
+    rows = _prob_rows(n_days=12, per_day=1)
+    assert scoring.shuffle_test(rows, n_perm=50)["p_value"] == 1.0
