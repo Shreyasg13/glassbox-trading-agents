@@ -71,15 +71,15 @@ into a dated release with a git tag.
   `GET /api/admin/gate-health?from=&to=` (admin only) aggregates the existing `verification_results` and `claims` tables;
   no migration.
 - **User evidence view, "Show my work"** (T7). `GET /api/reports/narratives/{id}/evidence` (`require_role("user")`, 401
-  signed out) returns `{verified, claims: [{claim_id, label, value, unit, source, field_path, as_of, passed}]}` for the
-  narrative's committee run: `verified` is true only if every claim passed the A6 gate. A quarantined narrative 404s
+  signed out) returns `{verified, claims: [{claim_id, label, metric, value, unit, source, field_path, as_of, passed}]}` for the
+  report's committee runs (`run_ids` stored on the report; older reports match their day's runs): `verified` is true only if every claim passed the A6 gate. A quarantined narrative 404s
   exactly like the report itself (same content_ref check as `GET /api/reports/narratives/{id}`), and the kill switch
   (`output.reports`) hides it the same way too. Nothing internal ever leaves this endpoint: no failure reason, check
   name, raw snapshot payload or quarantine detail, only the fields above (`response_model` enforces this even if a
   future edit adds one by mistake). Source names are shown with a friendly label (`sec_facts` -> "SEC", `bls` -> "BLS",
   etc.) instead of the internal snake_case name. Frontend: `EvidencePanel.tsx` adds a "Verified" / "Not fully verified"
   badge and an expandable "Show my work" list to the report view (`app/(app)/reports/[id]/page.tsx`); clicking a claim
-  highlights it and shows its source, field path and as-of time. The panel is USER-role only and renders nothing when
+  highlights it and shows its source, field path and the data's as-of date. The panel is USER-role only and renders nothing when
   signed out, since the report page itself stays public.
 - **Weekly discrepancy report** (T13). `weekly_reports` table (Alembic 0009): id, week_start (unique), status
   (`draft`|`published`), body_json, created_at, published_at/by. A pure `build_draft()` (`app/weekly_report.py`) summarizes
@@ -124,19 +124,6 @@ into a dated release with a git tag.
 - A performance mention passes when the text carries any `{{ledger:...}}` reference, not one next to each mention; it is
   flagged, not blocked, until T12 renders ledger references. The phrase lists are English only and deliberately short to
   avoid false positives on research wording, so they will not catch every paraphrase.
-- The evidence endpoint (T7) reads an optional `run_id` key on the stored report narrative to find its claims; nothing
-  in `committee_daily.py`'s daily digest report sets that key yet (that report covers a whole day's decisions, not one
-  run, and wiring it up touches a file outside T7's scope), so today's committee report narratives show no claims (an
-  empty, vacuously-"verified" evidence panel) until a future task adds the linkage.
-
-## [s3-part1] — 2026-09-26 — S3 "Trustworthy MVP", part 1 (T0–T4, T9, T10, T11)
-
-The goal of S3: nothing reaches a user, is scored as a track record, or appears in marketing unless it passed a verification gate
-and a compliance filter and was written to an append-only ledger. This part builds the foundations: a point-in-time data store,
-structured claims, the verification gate and the ledger. **Nothing blocks or changes what users see yet**; the single publish
-exit (T5) will switch the gate on. Committee decision logic is unchanged (tests prove the saved decisions are identical).
-
-### What users will notice
 - The website no longer claims an "A6 Auditor badge" or a live "Discrepancy Rate dashboard"; both now say "coming" until they
   exist (P1, #20).
 - The research disclaimer reads the same everywhere: "Simulated research, not investment advice." The committee report and the

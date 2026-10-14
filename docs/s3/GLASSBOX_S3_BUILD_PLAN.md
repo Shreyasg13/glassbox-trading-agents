@@ -325,17 +325,14 @@ ADMIN   GET  /admin/flags      POST /admin/flags/{key}
 - [x] T2 Baseline discrepancy script
 - [x] T3 Structured claim output
 - [x] T4 A6 verification gate
-- [x] T5 Route all outputs through `publish()` (2026-09-28; runs in shadow mode until `publish.enforce` is switched on, which waits for T6)
-- [ ] T6 Quarantine and admin review
+- [x] T5 Route all outputs through `publish()` (2026-09-28; runs in shadow mode until `publish.enforce` is switched on; that still needs held reports to be stored so an approval can release them)
+- [x] T6 Quarantine and admin review
 - [x] T7 User evidence view
 - [x] T8 A7 compliance filter (filter built; wired into outputs by T5)
 - [x] T9 Disclaimer config (the compliance log tab moved to T8: it needs `compliance_events`; the Compliance tab now exists)
 - [x] T10 Point-in-time snapshot store
 - [x] T11 Hash-chained ledger
-- [x] T12 Forward-only scoring
 - [x] T12 Forward-only scoring (2026-09-29; fixes and P(beat SPY) 2026-10-12)
-- [ ] T13 Weekly discrepancy report
-- [ ] T12 Forward-only scoring
 - [x] T13 Weekly discrepancy report
 - [x] T14 Gate health dashboard
 - [ ] T15 Ablation harness
@@ -397,4 +394,4 @@ ADMIN   GET  /admin/flags      POST /admin/flags/{key}
 | 2026-10-12 | T12 ext | 149 of 150 calls were HOLD, which scores 0. Analysts now state P(beat SPY over 5 days) on every call; `scoring.prob_metrics`; `docs/s3/PREREGISTRATION.md` fixes claims P1-P5 before outcomes | PR #54 |
 | 2026-10-12 | T12 ext | Date-blocked shuffle test, deflated Sharpe on the evidence table, `app.scripts.forward_study`. Deployed as 6651a1a on 2026-10-13 | PR #55 |
 
-Further work moves to S4: see [../S4_RESEARCH_LAB_PLAN.md](../S4_RESEARCH_LAB_PLAN.md) and [../ROADMAP.md](../ROADMAP.md). T6, T7, T13 and T15 stay S3 tasks.
+Further work moves to S4: see [../S4_RESEARCH_LAB_PLAN.md](../S4_RESEARCH_LAB_PLAN.md) and [../ROADMAP.md](../ROADMAP.md). T15 stays an S3 task.
