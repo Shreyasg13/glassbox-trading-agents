@@ -416,6 +416,7 @@ def publish(
                                 "decision": decision,
                                 "confidence": confidence,
                                 "engine_signal": engine_signal,
+                                "p_beat_spy": run_doc.get("p_beat_spy"),  # 0-100, None on runs before it existed
                                 "horizon_days": 30,
                                 "a6_ok": a6_ok,
                                 "a7_action": a7_action,

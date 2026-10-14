@@ -20,7 +20,9 @@ So the loop is deliberately split:
 from __future__ import annotations
 
 import logging
+import math
 import random
+import statistics
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -42,6 +44,39 @@ CANDIDATES = {
     "ctl_committee": "Engine + committee",
 }
 BASELINES = {"ctl_equal": "equal-weight hold of the same stocks", "ctl_placebo": "the scrambled-signal placebo"}
+
+
+# ------------------------------------------------------------------ deflated Sharpe --
+_EULER_GAMMA = 0.5772156649
+
+
+def sharpe(xs: List[float]) -> Optional[float]:
+    """Per-period (daily, not annualised) Sharpe of a return series; None if it cannot be computed."""
+    if len(xs) < 2:
+        return None
+    sd = statistics.stdev(xs)
+    return statistics.fmean(xs) / sd if sd > 0 else None
+
+
+def deflated_sharpe(xs: List[float], trial_sharpes: List[float]) -> Optional[Dict[str, Any]]:
+    """Deflated Sharpe ratio (Bailey & Lopez de Prado, 2014): the probability that this series' true Sharpe beats
+    the best Sharpe you would expect from len(trial_sharpes) strategies with NO skill, given their spread, the
+    sample length and the returns' skew and fat tails. Picking the best of many strategies inflates its Sharpe;
+    this undoes that. Above 0.95 is the usual bar. None when it cannot be computed (too few days or trials).
+    """
+    sr, t, n = sharpe(xs), len(xs), len(trial_sharpes)
+    if sr is None or t < 3 or n < 2:
+        return None
+    nd = statistics.NormalDist()
+    v = statistics.variance(trial_sharpes)
+    sr0 = math.sqrt(v) * ((1 - _EULER_GAMMA) * nd.inv_cdf(1 - 1 / n) + _EULER_GAMMA * nd.inv_cdf(1 - 1 / (n * math.e)))
+    m, sd = statistics.fmean(xs), statistics.pstdev(xs)
+    skew = sum((x - m) ** 3 for x in xs) / t / sd ** 3
+    kurt = sum((x - m) ** 4 for x in xs) / t / sd ** 4  # raw (normal = 3), as in the paper
+    denom = 1 - skew * sr + (kurt - 1) / 4 * sr ** 2
+    if denom <= 0:
+        return None
+    return {"sharpe_daily": round(sr, 4), "expected_max_sharpe": round(sr0, 4), "trials": n, "days": t, "dsr": round(nd.cdf((sr - sr0) * math.sqrt(t - 1) / math.sqrt(denom)), 4)}
 
 
 # ------------------------------------------------------------------ evidence gate --
@@ -90,6 +125,9 @@ def evidence_table(accounts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     candidates = dict(CANDIDATES)
     candidates.update({a["id"]: a["name"] for a in accounts if a.get("strategy") == "external_tilt"})
     n_tests = len(candidates) * len(BASELINES)  # every candidate vs every yardstick: correct for all of them
+    # every candidate counts as a trial, so the best-looking one is judged against the luck of the whole field
+    daily = {cid: list(live_returns(by[cid]).values()) for cid in candidates if cid in by}
+    trials = [s for s in (sharpe(xs) for xs in daily.values()) if s is not None]
     rows = []
     for cid, name in candidates.items():
         c = by.get(cid)
@@ -104,6 +142,7 @@ def evidence_table(accounts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "live_days": live["live_days"],
                 "live_return": live["live_return"],
                 "vs": {bid: gate(c, by[bid], n_tests) for bid in BASELINES if bid in by and bid != cid},
+                "deflated_sharpe": deflated_sharpe(daily[cid], trials),
             }
         )
     return rows

@@ -283,3 +283,9 @@ def _book():
     from tests.test_committee_daily import make_book
 
     return make_book()
+
+
+def test_analyst_view_p_beat_spy_is_optional_and_normalised():
+    assert AnalystView(decision="HOLD", confidence=60).p_beat_spy is None
+    assert AnalystView(decision="HOLD", confidence=60, p_beat_spy="55%").p_beat_spy == 55
+    assert AnalystView(decision="HOLD", confidence=60, p_beat_spy=0.62).p_beat_spy == 62
