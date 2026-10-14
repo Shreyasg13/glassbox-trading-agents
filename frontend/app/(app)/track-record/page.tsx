@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, apiFetch, fetchLedgerTrackRecord } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import type { TrackRecord, LedgerTrackRecord, LedgerMetrics, LedgerScoredCall } from "@/lib/types";
+import type { TrackRecord, LedgerMetrics, LedgerScoredCall } from "@/lib/types";
 import { MultiCurveChart } from "@/components/charts/MultiCurveChart";
 import { Section, Th, WrapperToggle, inWrapper, pct, plainPct, tone, type Wrapper } from "@/components/admin/strategy/shared";
 
@@ -182,28 +182,39 @@ export default function TrackRecordPage() {
 
             {ledgerQ.data.scored_calls.length > 0 && (
               <>
+                <p className="mb-sp3 text-[12px] text-t3 leading-snug">
+                  Right or wrong uses the pre-registered rule: BUY is right if the stock beat SPY, SELL if it lagged SPY,
+                  HOLD if it stayed within 1% of SPY over 5 days. Hit rates appear only from 30 calls.
+                </p>
                 <div className="grid gap-sp3 mb-sp4 sm:grid-cols-3">
                   {([1, 5, 20] as const).map((h) => {
                     const m: LedgerMetrics = ledgerQ.data.metrics[String(h)];
-                    const count = m.count;
-                    const showData = count > 0;
+                    const few = (n: number) => `too few (${n})`;
                     return (
                       <div key={h} className="rounded-r2 border border-border bg-bg2/40 p-sp3">
                         <div className="text-[10px] font-bold uppercase tracking-wide text-t3 mb-1">{h}-day horizon</div>
                         <dl className="grid grid-cols-2 gap-x-sp3 gap-y-1 text-[12px]">
-                          <dt className="text-t3">Calls</dt>
-                          <dd className="font-mono font-semibold text-t1 text-right">{count}</dd>
-                          <dt className="text-t3">Hit rate</dt>
+                          <dt className="text-t3">Calls scored</dt>
+                          <dd className="font-mono font-semibold text-t1 text-right">{m.count}</dd>
+                          {(["BUY", "SELL", "HOLD"] as const).map((d) => (
+                            <Fragment key={d}>
+                              <dt className="text-t3">{d} right</dt>
+                              <dd className="font-mono font-semibold text-t1 text-right">
+                                {m.by_decision[d].hit_rate !== null
+                                  ? `${(m.by_decision[d].hit_rate * 100).toFixed(1)}%`
+                                  : d === "HOLD" && h !== 5 && m.by_decision[d].n > 0
+                                  ? "5-day only"
+                                  : few(m.by_decision[d].scorable)}
+                              </dd>
+                            </Fragment>
+                          ))}
+                          <dt className="text-t3" title="Average of (stock minus SPY), with the sign flipped for SELL calls">Avg vs SPY (BUY/SELL)</dt>
                           <dd className="font-mono font-semibold text-t1 text-right">
-                            {showData && m.hit_rate !== null ? `${(m.hit_rate * 100).toFixed(1)}%` : "too few calls"}
+                            {m.mean_signed_excess !== null ? `${(m.mean_signed_excess * 100).toFixed(2)}%` : few(m.directional_count)}
                           </dd>
-                          <dt className="text-t3">Mean excess</dt>
+                          <dt className="text-t3">Rank IC (BUY/SELL)</dt>
                           <dd className="font-mono font-semibold text-t1 text-right">
-                            {showData && m.mean_excess_return !== null ? `${(m.mean_excess_return * 100).toFixed(2)}%` : "too few calls"}
-                          </dd>
-                          <dt className="text-t3">Rank IC</dt>
-                          <dd className="font-mono font-semibold text-t1 text-right">
-                            {showData && m.rank_ic !== null ? m.rank_ic.toFixed(3) : "too few calls"}
+                            {m.rank_ic !== null ? m.rank_ic.toFixed(3) : few(m.directional_count)}
                           </dd>
                         </dl>
                       </div>
@@ -260,10 +271,12 @@ export default function TrackRecordPage() {
                                 : "—"}
                             </td>
                             <td className="mono px-sp3 py-sp2 text-right font-semibold">
-                              {call.right ? (
-                                <span className="text-green">✓</span>
+                              {call.right === null ? (
+                                <span className="text-t3" title="No pre-registered rule for a HOLD at this horizon">—</span>
+                              ) : call.right ? (
+                                <span className="text-green" aria-label="right">✓</span>
                               ) : (
-                                <span className="text-red">✗</span>
+                                <span className="text-red" aria-label="wrong">✗</span>
                               )}
                             </td>
                           </tr>

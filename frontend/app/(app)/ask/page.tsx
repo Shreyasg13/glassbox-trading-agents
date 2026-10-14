@@ -145,7 +145,7 @@ function AssistantInner() {
                 <div key={d} className="rounded-r2 border border-border bg-bg2/40 px-sp3 py-sp3">
                   <div className={`text-[11px] font-bold ${chip(d)}`}>{d} calls</div>
                   <div className="mono mt-1 text-[16px] font-extrabold text-t1">{t?.n ?? 0}</div>
-                  <div className="text-[10.5px] text-t3">{t && t.n > 0 ? `${((t.hit_rate ?? 0) * 100).toFixed(0)}% right · avg ${pct(t.mean_return)} over 5 days` : "not enough aged calls yet"}</div>
+                  <div className="text-[10.5px] text-t3">{t && t.n > 0 ? `${t.hit_rate === null ? "not scored for direction" : `${(t.hit_rate * 100).toFixed(0)}% right`} · avg ${pct(t.mean_return)} over 5 days` : "not enough aged calls yet"}</div>
                 </div>
               );
             })}

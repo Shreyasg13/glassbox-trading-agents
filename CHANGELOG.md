@@ -6,6 +6,14 @@ into a dated release with a git tag.
 
 ## [Unreleased]
 
+### Fixed
+- **Track-record metrics follow the pre-registered rule** (`docs/s3/PREREGISTRATION.md`). Hit rate, Brier and calibration
+  counted every HOLD as wrong (149 of the first 150 calls were HOLD, so the public hit rate read 0%), the mean excess
+  return ignored the call's direction, and rank IC was driven by one BUY among ties. Now: `scoring.is_right` (BUY beats
+  SPY, SELL lags it, HOLD within 1% at 5 days; other HOLDs unscored), per-decision hit rates shown only from 30 calls,
+  `mean_signed_excess` and rank IC on BUY/SELL only. One shared `scoring.scored_calls()` replaces three copies of the join.
+  The committee scorecard no longer calls a HOLD "right" when the raw price rose.
+
 ### Added
 - **Ledger track record page section** (T12d). The user track-record page now includes a "Ledger-scored calls" section
   that displays forward-only scored calls from the append-only ledger: per-horizon metric cards (1, 5, 20 days) with

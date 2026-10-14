@@ -102,38 +102,7 @@ async def ledger_track_record() -> Dict[str, Any]:
     Never recomputes prices -- only reads what the scoring job already stored.
     """
     def _compute() -> Dict[str, Any]:
-        # Join ledger calls with outcomes
-        calls = scoring.load_ledger_calls()
-        outcomes = scoring.load_outcomes()
-
-        outcomes_by_call: dict[str, list[dict[str, Any]]] = {}
-        for oc in outcomes:
-            outcomes_by_call.setdefault(oc["call_id"], []).append(oc)
-
-        scored_calls = []
-        for call in calls:
-            call_outcomes = outcomes_by_call.get(call["call_id"], [])
-            if not call_outcomes:
-                continue
-            for oc in call_outcomes:
-                ojson = oc["outcome_json"]
-                scored_calls.append({
-                    "call_id": call["call_id"],
-                    "symbol": call["ticker"],
-                    "decision": call["decision"],
-                    "confidence": call["confidence"],
-                    "recorded_at": call["recorded_at"],
-                    "recorded_label": "recorded before outcome",
-                    "horizon": oc["horizon"],
-                    "entry_date": ojson.get("entry_date"),
-                    "exit_date": ojson.get("exit_date"),
-                    "forward_return": ojson.get("forward_return"),
-                    "benchmark_return": ojson.get("benchmark_return"),
-                    "excess_return": ojson.get("excess_return"),
-                    "score": oc["score"],
-                    "p_beat_spy": call.get("p_beat_spy"),
-                    "right": oc["score"] > 0,
-                })
+        scored_calls = scoring.scored_calls()
 
         # Group by horizon for metrics
         by_horizon: dict[int, list[dict[str, Any]]] = {}

@@ -16,14 +16,8 @@ from .. import db, research, scoring
 
 
 def scored_rows() -> list[dict[str, Any]]:
-    """One row per (ledger call, scored horizon), shaped like the track-record routes build them."""
-    calls = {c["call_id"]: c for c in scoring.load_ledger_calls()}
-    rows = []
-    for oc in scoring.load_outcomes():
-        c = calls.get(oc["call_id"])
-        if c:
-            rows.append({**c, "symbol": c["ticker"], "horizon": oc["horizon"], "score": oc["score"], **oc["outcome_json"]})
-    return rows
+    """One row per (ledger call, scored horizon), the same rows the track-record routes use."""
+    return scoring.scored_calls()
 
 
 def study(n_perm: int = 10000) -> dict[str, Any]:
