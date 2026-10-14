@@ -173,6 +173,9 @@ def recheck_quarantine_item(item: Dict[str, Any]) -> Tuple[bool, List[str]]:
     text can still be found) for one quarantine item. Returns (ok, reasons); reasons explains
     every failing check, same wording as `_a6_check`/`_a7_check` use elsewhere.
 
+    Known gap: in enforce mode a held report is never written, so its text is not stored anywhere and approving it
+    records the decision but cannot release the text. That must be built before publish.enforce is switched on.
+
     A7 can only be re-checked for channels whose text is stored and retrievable by content_ref
     (the report-narrative channels, via db.get_report_narrative) -- for channels that only ever
     send (digests, tts) there is nothing left to re-check, so A7 counts as still passing.
@@ -188,7 +191,10 @@ def recheck_quarantine_item(item: Dict[str, Any]) -> Tuple[bool, List[str]]:
     a7_ok = True
     content_ref = item.get("content_ref")
     if content_ref:
-        narrative_row = db.get_report_narrative(content_ref)
+        # committee reports are quarantined under their profile key, not the narrative id (see committee_daily)
+        narrative_row = db.get_report_narrative(content_ref) or next(
+            (n for n in db.list_report_narratives() if n.get("profile") == content_ref), None
+        )
         text = narrative_row.get("narrative") if narrative_row else None
         if text:
             result = compliance.filter.check(text, channel=item.get("channel", ""))

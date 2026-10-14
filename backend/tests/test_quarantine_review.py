@@ -277,6 +277,16 @@ def test_recheck_quarantine_item_a7_passes_once_the_narrative_is_fixed(qdb):
     assert publish.recheck_quarantine_item({"run_id": None, "content_ref": "nar-fixed", "channel": "committee_report"}) == (True, [])
 
 
+def test_recheck_finds_a_committee_report_by_its_profile_key(qdb):
+    # publish() quarantines committee reports under content_ref = profile ("committee:<date>:<hash>")
+    db.create_report_narrative({
+        "id": "nar-uuid", "date": "2026-09-19", "provider": "system", "model": "committee-vote", "profile": "committee:2026-09-19:abc",
+        "narrative": "This trade is guaranteed to double, you should buy now.", "created_at": TS,
+    })
+    ok, reasons = publish.recheck_quarantine_item({"run_id": None, "content_ref": "committee:2026-09-19:abc", "channel": "committee_report"})
+    assert ok is False and reasons[0].startswith("A7 blocked")
+
+
 def test_recheck_quarantine_item_no_content_ref_match_trivially_passes_a7(qdb):
     assert publish.recheck_quarantine_item({"run_id": None, "content_ref": "no-such-narrative", "channel": "committee_report"}) == (True, [])
 
