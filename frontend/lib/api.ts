@@ -1,7 +1,7 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8000/ws/signals";
 
-import type { ComplianceAction, ComplianceEvent, ComplianceRule, GateHealth, LedgerRow, LedgerVerify } from "@/lib/types";
+import type { ComplianceAction, ComplianceEvent, ComplianceRule, GateHealth, LedgerRow, LedgerVerify, NarrativeEvidence } from "@/lib/types";
 
 export function apiUrl(path: string): string {
   return `${API_URL}${path}`;
@@ -88,6 +88,13 @@ export async function fetchComplianceEvents(
 
 export async function fetchComplianceRules(token: string | undefined): Promise<ComplianceRule[]> {
   return apiFetch<ComplianceRule[]>(`/api/admin/compliance/rules`, { token });
+}
+
+// ---- Evidence ("Show my work") API (S3 T7) ----
+
+/** The claims behind a report narrative's numbers, each checked against the A6 gate. USER-role only (401 if signed out). */
+export async function fetchNarrativeEvidence(token: string | undefined, narrativeId: string): Promise<NarrativeEvidence> {
+  return apiFetch<NarrativeEvidence>(`/api/reports/narratives/${narrativeId}/evidence`, { token });
 }
 
 // ---- Gate health API (S3 T14) ----

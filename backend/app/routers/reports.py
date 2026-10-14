@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -142,18 +142,24 @@ async def get_narrative(narrative_id: str, user: Optional[TokenPayload] = Depend
     if narrative is None:
         raise HTTPException(status_code=404, detail="Narrative not found")
 
-    # Check for quarantine items when enforcement is on
-    if flags.flag("publish.enforce") and not (user and user.role == "admin"):
-        from ..migrated_tables import quarantine_items_table
-        from sqlalchemy import select
-        with db.engine.connect() as conn:
-            q_item = conn.execute(
-                select(quarantine_items_table).where(
-                    quarantine_items_table.c.content_ref == narrative_id,
-                    quarantine_items_table.c.status.in_(("pending", "rejected"))
-                )
-            ).first()
-        if q_item:
-            raise HTTPException(status_code=404, detail="Narrative not found")
+    if flags.flag("publish.enforce") and not (user and user.role == "admin") and is_quarantined(narrative):
+        raise HTTPException(status_code=404, detail="Narrative not found")
 
     return narrative
+
+
+def is_quarantined(narrative: Dict[str, Any]) -> bool:
+    """A pending or rejected quarantine item for this narrative. publish() records the committee report under its
+    `profile` key (committee:<date>:<hash>), not the narrative id, so both are matched."""
+    from sqlalchemy import select
+
+    from ..migrated_tables import quarantine_items_table
+
+    refs = [r for r in (narrative.get("id"), narrative.get("profile")) if r]
+    with db.engine.connect() as conn:
+        return conn.execute(
+            select(quarantine_items_table.c.id).where(
+                quarantine_items_table.c.content_ref.in_(refs),
+                quarantine_items_table.c.status.in_(("pending", "rejected")),
+            )
+        ).first() is not None
