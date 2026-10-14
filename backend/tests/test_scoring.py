@@ -323,69 +323,33 @@ def test_outcome_weekend_entry() -> None:
 
 
 def test_metrics_too_few_calls() -> None:
-    """n < min_n -> all metrics None, reason 'too few calls'."""
+    """Fewer directional calls than min_n -> every metric None, with the reason."""
     scored = [
-        {"decision": "BUY", "confidence": 80, "score": 0.01, "excess_return": 0.01, "forward_return": 0.02},
-        {"decision": "SELL", "confidence": 70, "score": -0.01, "excess_return": -0.01, "forward_return": -0.02},
+        {"decision": "BUY", "confidence": 80, "excess_return": 0.01, "forward_return": 0.02, "horizon": 5},
+        {"decision": "SELL", "confidence": 70, "excess_return": -0.01, "forward_return": -0.02, "horizon": 5},
     ]
     result = metrics(scored, min_n=10)
-    assert result["count"] == 2
-    assert result["hit_rate"] is None
-    assert result["mean_excess_return"] is None
-    assert result["rank_ic"] is None
-    assert result["rank_ic_t"] is None
-    assert result["brier"] is None
-    assert result["calibration"] is None
-    assert result["reason"] == "too few calls"
+    assert result["count"] == 2 and result["directional_count"] == 2
+    for k in ("hit_rate", "mean_signed_excess", "rank_ic", "rank_ic_t", "brier", "calibration"):
+        assert result[k] is None
+    assert result["reason"] == "too few BUY/SELL calls (2)"
 
 
 def test_metrics_rank_ic_and_brier_10_calls() -> None:
-    """Rank IC and Brier on a 10-call hand example with ties handled."""
-    # 10 calls with known values
-    # signed_confidence vs forward_return for Spearman
-    # Let's construct so we can verify rank_ic manually
-    scored = [
-        # decision, confidence, score, excess_return, forward_return
-        {"decision": "BUY", "confidence": 90, "score": 0.05, "excess_return": 0.05, "forward_return": 0.06},
-        {"decision": "BUY", "confidence": 80, "score": 0.04, "excess_return": 0.04, "forward_return": 0.05},
-        {"decision": "BUY", "confidence": 80, "score": 0.03, "excess_return": 0.03, "forward_return": 0.04},  # tie confidence
-        {"decision": "SELL", "confidence": 70, "score": 0.02, "excess_return": 0.02, "forward_return": 0.03},  # signed = -70
-        {"decision": "SELL", "confidence": 60, "score": -0.01, "excess_return": -0.01, "forward_return": 0.00},
-        {"decision": "HOLD", "confidence": 50, "score": 0.00, "excess_return": 0.00, "forward_return": -0.01},  # signed = 0
-        {"decision": "BUY", "confidence": 40, "score": -0.02, "excess_return": -0.02, "forward_return": -0.02},
-        {"decision": "BUY", "confidence": 30, "score": -0.03, "excess_return": -0.03, "forward_return": -0.03},
-        {"decision": "SELL", "confidence": 20, "score": 0.01, "excess_return": 0.01, "forward_return": -0.04},  # signed = -20
-        {"decision": "SELL", "confidence": 10, "score": -0.01, "excess_return": -0.01, "forward_return": -0.05},
-    ]
+    """Hand example; expected values recomputed independently (pandas rank + Pearson)."""
+    rows = [("BUY", 90, 0.05), ("BUY", 80, 0.04), ("BUY", 80, -0.01), ("SELL", 70, -0.02), ("SELL", 60, 0.01),
+            ("BUY", 40, -0.02), ("BUY", 30, 0.03), ("SELL", 20, -0.03), ("SELL", 10, 0.02), ("BUY", 50, 0.0)]
+    scored = [{"decision": d, "confidence": c, "excess_return": e, "forward_return": e, "horizon": 5} for d, c, e in rows]
+    scored.append({"decision": "HOLD", "confidence": 50, "excess_return": 0.005, "forward_return": 0.0, "horizon": 5})
     result = metrics(scored, min_n=10)
-
-    assert result["count"] == 10
-    # hit_rate: score > 0 -> indices 0,1,2,3,8 = 5/10 = 0.5
-    assert result["hit_rate"] == 0.5
-    # mean_excess_return
-    excess_sum = 0.05 + 0.04 + 0.03 + 0.02 - 0.01 + 0.00 - 0.02 - 0.03 + 0.01 - 0.01
-    assert result["mean_excess_return"] == round(excess_sum / 10, 6)
-
-    # Rank IC: signed_confidence = [90, 80, 80, -70, -60, 0, 40, 30, -20, -10]
-    # forward_return = [0.06, 0.05, 0.04, 0.03, 0.00, -0.01, -0.02, -0.03, -0.04, -0.05]
-    # Ranks of signed_confidence (average for ties):
-    # sorted: -70, -60, -20, -10, 0, 30, 40, 80, 80, 90
-    # ranks:  1,   2,   3,   4,  5,  6,  7, 8.5, 8.5, 10
-    # forward_return ranks (descending, all unique): 1,2,3,4,5,6,7,8,9,10
-    # Pearson correlation on the ranks, recomputed independently by the inspector:
-    # rho = 0.51064, t = rho * sqrt((n-2)/(1-rho^2)) = 1.6798
-    assert result["rank_ic"] == pytest.approx(0.5106, abs=1e-4)
-    assert result["rank_ic_t"] == pytest.approx(1.68, abs=1e-2)
-
-    # Brier score: confidence/100 vs (score > 0)
-    # p = [0.9, 0.8, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1]
-    # o = [1,   1,   1,   1,   0,   0,   0,   0,   1,   0]
-    # (0.9-1)^2 + (0.8-1)^2 + (0.8-1)^2 + (0.7-1)^2 + (0.6-0)^2 + (0.5-0)^2 + (0.4-0)^2 + (0.3-0)^2 + (0.2-1)^2 + (0.1-0)^2
-    # = 0.01 + 0.04 + 0.04 + 0.09 + 0.36 + 0.25 + 0.16 + 0.09 + 0.64 + 0.01 = 1.69
-    # brier = 1.69 / 10 = 0.169
-    expected_brier = (0.01 + 0.04 + 0.04 + 0.09 + 0.36 + 0.25 + 0.16 + 0.09 + 0.64 + 0.01) / 10
-    assert result["brier"] == round(expected_brier, 4)
-
+    assert result["count"] == 11 and result["directional_count"] == 10
+    assert result["hit_rate"] is None  # pre-registered: needs 30 calls
+    assert result["by_decision"]["BUY"] == {"n": 6, "scorable": 6, "hit_rate": None}
+    assert result["mean_signed_excess"] == 0.011  # SELL excess sign-flipped, HOLD left out
+    assert result["rank_ic"] == pytest.approx(0.5305, abs=1e-4)  # signed confidence vs excess, BUY/SELL only
+    assert result["rank_ic_t"] == pytest.approx(1.77, abs=1e-2)
+    assert result["brier"] == pytest.approx(0.2673, abs=1e-4)  # confidence vs pre-registered right, HOLD judged at 5d
+    assert sum(b["n"] for b in result["calibration"]) == 11
 
 def test_metrics_calibration_bins_sum_to_n() -> None:
     """Calibration bins sum to n."""

@@ -73,6 +73,56 @@ def load_outcomes() -> list[dict[str, Any]]:
     return out
 
 
+# docs/s3/PREREGISTRATION.md, "Directional hit rate": fixed before any hit rate was computed with them.
+HOLD_BAND = 0.01  # a HOLD is right if |5-day excess| <= 1.0%
+MIN_PER_DECISION = 30  # a decision type's hit rate is shown only from 30 calls
+
+
+def is_right(call: dict[str, Any]) -> bool | None:
+    """Pre-registered rule: BUY right if excess > 0, SELL if excess < 0, HOLD if |excess| <= HOLD_BAND. The HOLD band
+    was registered for the 5-day horizon only, so a HOLD at another horizon is not scored (None), never counted wrong."""
+    d, x = call.get("decision"), call.get("excess_return")
+    if x is None:
+        return None
+    if d == "BUY":
+        return x > 0
+    if d == "SELL":
+        return x < 0
+    if d == "HOLD" and call.get("horizon") == 5:
+        return abs(x) <= HOLD_BAND
+    return None
+
+
+def scored_calls() -> list[dict[str, Any]]:
+    """Ledger calls joined to their stored outcomes, one row per (call, horizon). Reads stored rows only."""
+    outcomes_by_call: dict[str, list[dict[str, Any]]] = {}
+    for oc in load_outcomes():
+        outcomes_by_call.setdefault(oc["call_id"], []).append(oc)
+    rows = []
+    for call in load_ledger_calls():
+        for oc in outcomes_by_call.get(call["call_id"], []):
+            ojson = oc["outcome_json"]
+            row = {
+                "call_id": call["call_id"],
+                "symbol": call["ticker"],
+                "decision": call["decision"],
+                "confidence": call["confidence"],
+                "recorded_at": call["recorded_at"],
+                "recorded_label": "recorded before outcome",
+                "horizon": oc["horizon"],
+                "entry_date": ojson.get("entry_date"),
+                "exit_date": ojson.get("exit_date"),
+                "forward_return": ojson.get("forward_return"),
+                "benchmark_return": ojson.get("benchmark_return"),
+                "excess_return": ojson.get("excess_return"),
+                "score": oc["score"],
+                "p_beat_spy": call.get("p_beat_spy"),
+            }
+            row["right"] = is_right(row)
+            rows.append(row)
+    return rows
+
+
 def _sign(decision: str) -> int:
     """+1 for BUY, -1 for SELL, 0 for HOLD."""
     if decision == "BUY":
@@ -266,102 +316,70 @@ def _spearman_t_stat(rho: float | None, n: int) -> float | None:
     return rho * math.sqrt((n - 2) / (1 - rho * rho))
 
 
+def _calibration(rows: list[dict[str, Any]], rights: list[bool]) -> list[dict[str, Any]]:
+    """5 bins of width 20: stated confidence vs the observed share of right calls."""
+    out = []
+    for k in range(5):
+        lo, hi = k * 20, (k + 1) * 20
+        idx = [i for i, c in enumerate(rows) if lo <= c["confidence"] < hi or (hi == 100 and c["confidence"] == 100)]
+        out.append({
+            "bin": k,
+            "confidence_range": f"{lo}-{hi}",
+            "n": len(idx),
+            "mean_confidence": round(sum(rows[i]["confidence"] for i in idx) / len(idx), 1) if idx else None,
+            "observed_hit_rate": round(sum(rights[i] for i in idx) / len(idx), 3) if idx else None,
+        })
+    return out
+
+
 def metrics(scored: list[dict[str, Any]], min_n: int = 10) -> dict[str, Any]:
-    """Compute aggregate metrics for a list of scored calls.
+    """Aggregate metrics for scored calls (decision, confidence 0-100, excess_return, horizon).
 
-    Args:
-        scored: List of dicts with keys: decision, confidence (0-100), score,
-                excess_return, forward_return.
-        min_n: Minimum sample size for metrics to be computed.
-
-    Returns:
-        Dict with count, hit_rate, mean_excess_return, rank_ic, rank_ic_t,
-        brier, calibration (5 bins of width 20).
-        If n < min_n, all metrics are None and "reason": "too few calls".
+    Right/wrong always uses the pre-registered rule (`is_right`), so a HOLD is never a silent miss:
+    - by_decision: n and hit rate per BUY/SELL/HOLD, the hit rate only from MIN_PER_DECISION scorable calls.
+    - hit_rate: BUY+SELL pooled, also only from MIN_PER_DECISION calls.
+    - mean_signed_excess: mean of sign(call) * excess over BUY+SELL (what following the calls earned vs SPY).
+    - rank_ic / rank_ic_t: Spearman of signed confidence vs excess return over BUY+SELL.
+    - brier / calibration: confidence as P(call is right), over calls the rule can judge.
+    Each is None when its own subset is smaller than its threshold; `reason` says why.
     """
-    n = len(scored)
-    if n < min_n:
-        return {
-            "count": n,
-            "hit_rate": None,
-            "mean_excess_return": None,
-            "rank_ic": None,
-            "rank_ic_t": None,
-            "brier": None,
-            "calibration": None,
-            "reason": "too few calls",
-            "p_beat_spy": prob_metrics(scored, min_n),
-        }
+    directional = [c for c in scored if c["decision"] in ("BUY", "SELL") and c.get("excess_return") is not None]
+    judged = [c for c in scored if is_right(c) is not None]
+    by_decision = {}
+    for d in ("BUY", "SELL", "HOLD"):
+        rows = [c for c in scored if c["decision"] == d]
+        rs = [r for r in (is_right(c) for c in rows) if r is not None]
+        by_decision[d] = {"n": len(rows), "scorable": len(rs), "hit_rate": round(sum(rs) / len(rs), 3) if len(rs) >= MIN_PER_DECISION else None}
 
-    # Hit rate: share where score > 0
-    hits = sum(1 for c in scored if c["score"] > 0)
-    hit_rate = hits / n
-
-    # Mean excess return
-    mean_excess = sum(c["excess_return"] for c in scored) / n
-
-    # Rank IC: Spearman of signed_confidence vs forward_return
-    signed_confidences = []
-    forward_returns = []
-    for c in scored:
-        conf = c["confidence"]
-        decision = c["decision"]
-        if decision == "BUY":
-            signed = conf
-        elif decision == "SELL":
-            signed = -conf
-        else:
-            signed = 0.0
-        signed_confidences.append(signed)
-        forward_returns.append(c["forward_return"])
-
-    rho = _spearman_rho(signed_confidences, forward_returns)
-    t_stat = _spearman_t_stat(rho, n) if rho is not None else None
-
-    # Brier score: confidence/100 vs "call was right" (score > 0)
-    brier_sum = 0.0
-    for c in scored:
-        p = c["confidence"] / 100.0
-        o = 1.0 if c["score"] > 0 else 0.0
-        brier_sum += (p - o) ** 2
-    brier = brier_sum / n
-
-    # Calibration: 5 bins of width 20
-    calibration = []
-    for bin_idx in range(5):
-        lo = bin_idx * 20
-        hi = (bin_idx + 1) * 20
-        bin_calls = [c for c in scored if lo <= c["confidence"] < hi or (hi == 100 and c["confidence"] == 100)]
-        if bin_calls:
-            mean_conf = sum(c["confidence"] for c in bin_calls) / len(bin_calls)
-            obs_hit = sum(1 for c in bin_calls if c["score"] > 0) / len(bin_calls)
-            calibration.append({
-                "bin": bin_idx,
-                "confidence_range": f"{lo}-{hi}",
-                "n": len(bin_calls),
-                "mean_confidence": round(mean_conf, 1),
-                "observed_hit_rate": round(obs_hit, 3),
-            })
-        else:
-            calibration.append({
-                "bin": bin_idx,
-                "confidence_range": f"{lo}-{hi}",
-                "n": 0,
-                "mean_confidence": None,
-                "observed_hit_rate": None,
-            })
-
-    return {
-        "count": n,
-        "hit_rate": round(hit_rate, 3),
-        "mean_excess_return": round(mean_excess, 6),
-        "rank_ic": round(rho, 4) if rho is not None else None,
-        "rank_ic_t": round(t_stat, 2) if t_stat is not None else None,
-        "brier": round(brier, 4),
-        "calibration": calibration,
+    out: dict[str, Any] = {
+        "count": len(scored),
+        "directional_count": len(directional),
+        "by_decision": by_decision,
+        "hit_rate": None,
+        "mean_signed_excess": None,
+        "rank_ic": None,
+        "rank_ic_t": None,
+        "brier": None,
+        "calibration": None,
         "reason": None,
         "p_beat_spy": prob_metrics(scored, min_n),
     }
+    if len(directional) >= MIN_PER_DECISION:
+        out["hit_rate"] = round(sum(is_right(c) for c in directional) / len(directional), 3)
+    if len(directional) >= min_n:
+        out["mean_signed_excess"] = round(sum(_sign(c["decision"]) * c["excess_return"] for c in directional) / len(directional), 6)
+        signed = [_sign(c["decision"]) * c["confidence"] for c in directional]
+        rho = _spearman_rho(signed, [c["excess_return"] for c in directional])
+        t_stat = _spearman_t_stat(rho, len(directional)) if rho is not None else None
+        out["rank_ic"] = round(rho, 4) if rho is not None else None
+        out["rank_ic_t"] = round(t_stat, 2) if t_stat is not None else None
+    if len(judged) >= min_n:
+        rights = [bool(is_right(c)) for c in judged]
+        out["brier"] = round(sum((c["confidence"] / 100.0 - r) ** 2 for c, r in zip(judged, rights)) / len(judged), 4)
+        out["calibration"] = _calibration(judged, rights)
+    if len(directional) < min_n:
+        out["reason"] = f"too few BUY/SELL calls ({len(directional)})"
+    return out
 
 
 def _prob_rows(scored: list[dict[str, Any]]) -> list[dict[str, Any]]:
