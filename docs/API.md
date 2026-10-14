@@ -4,6 +4,7 @@
 
 Total routes: 116 (public: 26, user: 23, admin: 63, undeclared: 4)
 Total routes: 119 (public: 28, user: 22, admin: 65, undeclared: 4)
+Total routes: 117 (public: 26, user: 22, admin: 65, undeclared: 4)
 
 > The public interactive docs will live at `/api/docs`.
 
@@ -116,6 +117,8 @@ Total routes: 119 (public: 28, user: 22, admin: 65, undeclared: 4)
 | POST | /api/admin/providers/routing/test | Send one tiny prompt through the router and report which provider answered |
 | GET | /api/admin/quarantine | List quarantine items, optionally filtered by status. Viewer gets 403; admin gets 200. |
 | POST | /api/admin/quarantine/{item_id}/action | Approve or reject a quarantine item (admin only). |
+| POST | /api/admin/quarantine/{item_id}/approve | Re-run A6+A7 for the item's run/content. Passing -> approved. Still failing -> 409 with the |
+| POST | /api/admin/quarantine/{item_id}/reject | Reject a quarantine item. A note is required. |
 | GET | /api/admin/snapshots | Metadata only (no payload) for the admin inspector. |
 | GET | /api/admin/snapshots/{snap_id} | Full row including payload, for the admin detail view. |
 | GET | /api/admin/strategy/accuracy | Whole-history scorecards (cached per data version) plus the live committee scorecard and leaderboard. |

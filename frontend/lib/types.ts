@@ -689,3 +689,19 @@ export type WeeklyReportBody = {
 };
 
 export type WeeklyReportDetail = WeeklyReportSummary & { body: WeeklyReportBody };
+// ---- Quarantine review (admin, S3 T6) ----
+
+export type QuarantineStatus = "pending" | "approved" | "rejected" | "shadow";
+
+export type QuarantineItem = {
+  id: string;
+  channel: string;
+  run_id: string | null;
+  content_ref: string;
+  stage: "A6" | "A7";
+  status: QuarantineStatus;
+  reason: string | null;
+  created_at: string;
+  decided_at: string | null;
+  decided_by: string | null;
+};

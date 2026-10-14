@@ -91,6 +91,14 @@ into a dated release with a git tag.
   draft (`GET/POST /api/admin/weekly-reports[/{id}/publish]`; publishing twice is a 409; a published report has no edit
   route). Public transparency page at `/transparency` and `GET /api/public/weekly-reports[/{id}]` show published
   reports only, newest first; a draft is never visible there (404).
+- **Quarantine review** (T6). `POST /api/admin/quarantine/{id}/approve` re-runs the A6 gate and the A7 filter for the
+  item's run/content (`publish.recheck_quarantine_item`, used only by this route, never by `publish()`); if both still
+  pass it approves; if either still fails it returns 409 with the failing checks unless an `override_reason` (>= 10
+  characters) is given, in which case it approves anyway and stores the reason and the reviewer.
+  `POST /api/admin/quarantine/{id}/reject` rejects with a required `note`. Both write an audit log entry and use the
+  existing `quarantine_items` columns (`reviewer_id`, `review_note`, `reviewed_at`) -- no migration. New admin page,
+  Admin → Quarantine: pending items first (stage, channel, reason, created), with Approve / Approve with override /
+  Reject actions.
 
 ### Changed
 - Removed the "For Advisors" section and its nav link. It pitched paid advisor features (white-label, multi-client,
@@ -103,6 +111,10 @@ into a dated release with a git tag.
   the reason (that number is then not counted as verified) and the rest of the run is still recorded.
 - Re-running the claims step for a saved decision no longer duplicates its claims: the claims table is append-only, so the
   first set stored for a run is kept and reused. Narrative rows for a run are replaced instead of failing on a duplicate.
+- `POST /api/admin/quarantine/{id}/action` and `GET /api/admin/quarantine` (T6) referenced columns the `quarantine_items`
+  table does not have (`reason`, `decided_at`, `decided_by` instead of `reasons_json`, `reviewed_at`, `reviewer_id`); the
+  action route raised a SQLAlchemy `CompileError` on every call. Both now read/write the real columns; behaviour and
+  response shape are unchanged.
 
 ### Built but switched off
 - The compliance filter is not yet called by any output (report, digest, assistant, speech); T5 wires it into `publish()`
