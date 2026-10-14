@@ -130,6 +130,8 @@ async def ledger_track_record() -> Dict[str, Any]:
                     "forward_return": ojson.get("forward_return"),
                     "benchmark_return": ojson.get("benchmark_return"),
                     "excess_return": ojson.get("excess_return"),
+                    "score": oc["score"],
+                    "p_beat_spy": call.get("p_beat_spy"),
                     "right": oc["score"] > 0,
                 })
 
