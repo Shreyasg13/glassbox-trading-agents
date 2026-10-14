@@ -143,6 +143,18 @@ call_outcomes_table = Table(
     Column("score", Float, nullable=False),
 )
 
+weekly_reports_table = Table(
+    "weekly_reports",
+    migrated_metadata,
+    Column("id", String, primary_key=True),
+    Column("week_start", String, nullable=False, unique=True),  # YYYY-MM-DD, the Monday the week starts
+    Column("status", String, nullable=False),  # draft | published
+    Column("body_json", Text, nullable=False),
+    Column("created_at", String, nullable=False),
+    Column("published_at", String, nullable=True),
+    Column("published_by", String, nullable=True),
+)
+
 
 def include_object(obj, name, type_, reflected, compare_to):
     """Autogenerate fence (used by migrations/env.py): it may only see the migration-managed tables above, so it can never
