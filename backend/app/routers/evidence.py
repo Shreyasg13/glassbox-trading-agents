@@ -11,14 +11,10 @@ narrative returns 404, exactly like GET /api/reports/narratives/{id} itself
 ever leave this module -- response_model enforces that even if a caller adds a
 field here by mistake, FastAPI drops it before it reaches the client.
 
-Narrative -> run linkage: claims and verification results are keyed by a single
-committee run_id ("YYYY-MM-DD:TICKER", see claims.py/verification/runner.py).
-Report narratives (db.get_report_narrative) do not carry that key today -- the
-daily digest report in committee_daily.py covers a whole day's decisions, not one
-run, and wiring that up is outside T7's file scope. This endpoint reads an
-optional "run_id" key from the stored narrative payload (nothing sets it in
-production yet); a narrative without one has no claims to show and is NOT verified --
-"verified" is only ever claimed when at least one number was actually checked.
+Narrative -> run linkage: claims and verification results are keyed by committee run_id ("YYYY-MM-DD:TICKER",
+see claims.py/verification/runner.py). The daily committee report stores the `run_ids` it covers; reports written
+before that are matched to their day's runs by date (`_run_ids`). A narrative with no runs has no claims to show and
+is NOT verified -- "verified" is only ever claimed when at least one number was actually checked.
 """
 from __future__ import annotations
 
@@ -30,7 +26,8 @@ from sqlalchemy import select
 
 from .. import db, flags
 from ..auth import TokenPayload, require_role
-from ..migrated_tables import claims_table, quarantine_items_table, source_snapshots_table, verification_results_table
+from ..migrated_tables import claims_table, source_snapshots_table, verification_results_table
+from .reports import is_quarantined
 
 # Same prefix as routers/reports.py -- this is a sibling route under the same
 # resource, registered as its own router per the spec's file scope.
@@ -50,6 +47,7 @@ SOURCE_LABELS: Dict[str, str] = {
 class EvidenceClaim(BaseModel):
     claim_id: str
     label: str
+    metric: str
     value: float
     unit: str
     source: str
@@ -78,31 +76,39 @@ def _claim_passed(check_rows: List[Any]) -> bool:
     return True
 
 
-def _is_quarantined(narrative_id: str) -> bool:
-    """Same check as routers/reports.py's get_narrative: a pending or rejected
-    quarantine item for this content hides it from non-admin users."""
+def _run_ids(narrative: Dict[str, Any]) -> List[str]:
+    """Committee runs behind a report. New reports store `run_ids`; older committee reports cover that day's runs,
+    whose ids are "YYYY-MM-DD:TICKER" (claims.py), so they are found by date."""
+    if narrative.get("run_ids"):
+        return list(narrative["run_ids"])
+    if narrative.get("run_id"):
+        return [narrative["run_id"]]
+    d = str(narrative.get("date") or "")
+    if narrative.get("model") != "committee-vote" or len(d) != 8:
+        return []
+    prefix = f"{d[:4]}-{d[4:6]}-{d[6:]}:"
     with db.engine.connect() as conn:
-        row = conn.execute(
-            select(quarantine_items_table.c.id).where(
-                quarantine_items_table.c.content_ref == narrative_id,
-                quarantine_items_table.c.status.in_(("pending", "rejected")),
-            )
-        ).first()
-    return row is not None
+        rows = conn.execute(select(claims_table.c.run_id).where(claims_table.c.run_id.like(prefix + "%")).distinct()).fetchall()
+    return sorted(r.run_id for r in rows)
 
 
-def _build_claims(run_id: str) -> List[EvidenceClaim]:
+def _build_claims(run_ids: List[str]) -> List[EvidenceClaim]:
     with db.engine.connect() as conn:
         claim_rows = conn.execute(
-            select(claims_table).where(claims_table.c.run_id == run_id).order_by(claims_table.c.created_at)
+            select(claims_table).where(claims_table.c.run_id.in_(run_ids)).order_by(claims_table.c.run_id, claims_table.c.created_at)
         ).fetchall()
         check_rows = conn.execute(
             select(
                 verification_results_table.c.claim_id,
                 verification_results_table.c.status,
                 verification_results_table.c.check_type,
-            ).where(verification_results_table.c.run_id == run_id)
+            ).where(verification_results_table.c.run_id.in_(run_ids))
         ).fetchall()
+        snap_ids = sorted({c.source_snapshot_id for c in claim_rows if c.source_snapshot_id})
+        as_of_by_snap = {
+            r.id: r.as_of
+            for r in conn.execute(select(source_snapshots_table.c.id, source_snapshots_table.c.as_of).where(source_snapshots_table.c.id.in_(snap_ids)))
+        } if snap_ids else {}
 
     checks_by_claim: Dict[str, List[Any]] = {}
     for row in check_rows:
@@ -110,30 +116,21 @@ def _build_claims(run_id: str) -> List[EvidenceClaim]:
             continue
         checks_by_claim.setdefault(row.claim_id, []).append(row)
 
-    out: List[EvidenceClaim] = []
-    for c in claim_rows:
-        as_of = None
-        if c.source_snapshot_id:
-            with db.engine.connect() as conn:
-                snap = conn.execute(
-                    select(source_snapshots_table.c.fetched_at).where(source_snapshots_table.c.id == c.source_snapshot_id)
-                ).fetchone()
-            as_of = snap.fetched_at if snap else None
-        if as_of is None:
-            as_of = c.period  # pricebook/risk claims have no snapshot; the period IS the as-of date
-        out.append(
-            EvidenceClaim(
-                claim_id=c.id,
-                label=c.metric,
-                value=c.value,
-                unit=c.unit,
-                source=SOURCE_LABELS.get(c.source, c.source),
-                field_path=c.source_path,
-                as_of=as_of,
-                passed=_claim_passed(checks_by_claim.get(c.id, [])),
-            )
+    return [
+        EvidenceClaim(
+            claim_id=c.id,
+            label=f"{c.ticker} {c.metric}".strip(),
+            metric=c.metric,
+            value=c.value,
+            unit=c.unit,
+            source=SOURCE_LABELS.get(c.source, c.source),
+            field_path=c.source_path,
+            # the data's own date; pricebook/risk claims have no snapshot and their period IS the as-of date
+            as_of=as_of_by_snap.get(c.source_snapshot_id) or c.period,
+            passed=_claim_passed(checks_by_claim.get(c.id, [])),
         )
-    return out
+        for c in claim_rows
+    ]
 
 
 @router.get("/narratives/{narrative_id}/evidence", response_model=EvidenceResponse, dependencies=[Depends(require_role("user"))])
@@ -149,13 +146,13 @@ async def get_narrative_evidence(narrative_id: str, user: TokenPayload = Depends
         raise HTTPException(status_code=404, detail="Narrative not found")
 
     # Same quarantine check as the report itself: a held narrative is invisible to non-admins.
-    if flags.flag("publish.enforce") and not is_admin and _is_quarantined(narrative_id):
+    if flags.flag("publish.enforce") and not is_admin and is_quarantined(narrative):
         raise HTTPException(status_code=404, detail="Narrative not found")
 
-    run_id = narrative.get("run_id")
-    if not run_id:
+    run_ids = _run_ids(narrative)
+    if not run_ids:
         return EvidenceResponse(verified=False, claims=[])
 
-    claims_out = _build_claims(run_id)
+    claims_out = _build_claims(run_ids)
     verified = bool(claims_out) and all(c.passed for c in claims_out)  # nothing checked is never "verified"
     return EvidenceResponse(verified=verified, claims=claims_out)

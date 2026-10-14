@@ -114,10 +114,16 @@ function Row({ label, value, mono = false }: { label: string; value: string; mon
   );
 }
 
+// "pct" claims are not on one scale (backend/app/claims.py): SEC ratios, CPI YoY and drawdown are fractions,
+// Treasury and BLS rates are already percent points, and risk_vol_pct is a 0-100 percentile.
+const PERCENT_POINTS = new Set(["y10", "y2", "y3m", "curve_10y_2y", "y10_change_3m", "unemployment"]);
+
 function formatClaimValue(c: EvidenceClaim): string {
+  if (c.metric === "risk_vol_pct") return `${c.value.toFixed(0)}th percentile`;
   switch (c.unit) {
     case "pct":
-      return `${(c.value * 100).toFixed(2)}%`;
+      if (c.metric === "curve_10y_2y" || c.metric === "y10_change_3m") return `${c.value.toFixed(2)} pp`; // a difference of two rates
+      return PERCENT_POINTS.has(c.metric) ? `${c.value.toFixed(2)}%` : `${(c.value * 100).toFixed(2)}%`;
     case "USD":
       return `$${c.value.toFixed(2)}`;
     case "ratio":

@@ -61,7 +61,7 @@ def _clear_overrides():
     app.dependency_overrides.pop(get_current_user, None)
 
 
-def _seed_narrative(run_id: str | None = RUN_ID, narrative_id: str = NARRATIVE_ID) -> None:
+def _seed_narrative(run_id: str | None = RUN_ID, narrative_id: str = NARRATIVE_ID, **extra) -> None:
     payload = {
         "id": narrative_id,
         "date": "20260921",
@@ -73,7 +73,7 @@ def _seed_narrative(run_id: str | None = RUN_ID, narrative_id: str = NARRATIVE_I
     }
     if run_id is not None:
         payload["run_id"] = run_id
-    db.create_report_narrative(payload)
+    db.create_report_narrative({**payload, **extra})
 
 
 def _seed_snapshot(conn, snap_id: str, fetched_at: str) -> None:
@@ -201,7 +201,7 @@ def test_passing_claims_return_200_verified_true_with_exact_claim_fields(migrate
 
     by_id = {c["claim_id"]: c for c in body["claims"]}
     close = by_id["claim-close"]
-    assert close["label"] == "close"
+    assert close["label"] == "AAPL close"
     assert close["value"] == 150.0
     assert close["unit"] == "USD"
     assert close["source"] == "Market data"
@@ -210,12 +210,12 @@ def test_passing_claims_return_200_verified_true_with_exact_claim_fields(migrate
     assert close["passed"] is True
 
     rg = by_id["claim-revenue-growth"]
-    assert rg["label"] == "revenue_growth"
+    assert rg["label"] == "AAPL revenue_growth"
     assert rg["value"] == 0.12
     assert rg["unit"] == "pct"
     assert rg["source"] == "SEC"
     assert rg["field_path"] == "/concepts/revenue/series/0/val"
-    assert rg["as_of"] == "2026-09-20T12:00:00.000000+00:00"  # the snapshot's fetched_at
+    assert rg["as_of"] == "2025-12-31"  # the snapshot's own as_of date, not when it was fetched
     assert rg["passed"] is True
 
     assert _no_forbidden_keys(body)
@@ -289,3 +289,38 @@ def test_narrative_without_a_run_id_has_no_claims_and_is_not_verified(migrated):
     r = _client(VIEWER).get(f"/api/reports/narratives/{NARRATIVE_ID}/evidence")
     assert r.status_code == 200
     assert r.json() == {"verified": False, "claims": []}
+
+
+def test_report_run_ids_list_links_its_claims(migrated):
+    with migrated.engine.begin() as conn:
+        _seed_claims_and_verification(conn)
+    _seed_narrative(run_id=None, run_ids=[RUN_ID])
+    body = _client(VIEWER).get(f"/api/reports/narratives/{NARRATIVE_ID}/evidence").json()
+    assert body["verified"] is True and len(body["claims"]) == 2
+
+
+def test_older_committee_report_finds_its_days_runs_by_date(migrated):
+    with migrated.engine.begin() as conn:
+        _seed_claims_and_verification(conn)  # run 2026-09-21:AAPL; the narrative's date is 20260921
+    _seed_narrative(run_id=None)
+    body = _client(VIEWER).get(f"/api/reports/narratives/{NARRATIVE_ID}/evidence").json()
+    assert len(body["claims"]) == 2
+
+
+def test_non_committee_narrative_without_runs_has_no_claims(migrated):
+    with migrated.engine.begin() as conn:
+        _seed_claims_and_verification(conn)
+    _seed_narrative(run_id=None, model="gemini")
+    assert _client(VIEWER).get(f"/api/reports/narratives/{NARRATIVE_ID}/evidence").json() == {"verified": False, "claims": []}
+
+
+def test_quarantine_recorded_under_the_report_profile_hides_it(migrated):
+    # publish() records committee reports under content_ref = the report's profile key, not its id
+    with migrated.engine.begin() as conn:
+        conn.execute(quarantine_items_table.insert().values(
+            id=str(uuid.uuid4()), channel="committee_report", run_id=None, content_ref="committee:2026-09-21:abc",
+            stage="A6", status="pending", reasons_json="[]", created_at=_iso_now(), reviewer_id=None, review_note=None, reviewed_at=None))
+    _seed_narrative(profile="committee:2026-09-21:abc")
+    flags.set_flag("publish.enforce", True, "admin")
+    assert _client(VIEWER).get(f"/api/reports/narratives/{NARRATIVE_ID}/evidence").status_code == 404
+    assert _client(VIEWER).get(f"/api/reports/narratives/{NARRATIVE_ID}").status_code == 404

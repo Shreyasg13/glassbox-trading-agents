@@ -113,7 +113,8 @@ export type DailyReportNarrative = {
 // reasons, raw snapshot payloads, check names or quarantine details; see backend/app/routers/evidence.py.
 export type EvidenceClaim = {
   claim_id: string;
-  label: string; // metric name, e.g. "revenue_growth"
+  label: string; // "<TICKER> <metric>", e.g. "AAPL revenue_growth"
+  metric: string;
   value: number;
   unit: string;
   source: string; // friendly source label, e.g. "SEC", "BLS", "Market data"
