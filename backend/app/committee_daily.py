@@ -239,7 +239,7 @@ def _agent_rows(result: Dict[str, Any]) -> List[Dict[str, Any]]:
             row = {"agent": a["agent"], "type": "llm", "ok": True, "provider": a.get("provider"), "model": a.get("model"),
                    "lean": view.get("decision") or orchestration._lean_from_text(text), "summary": _squash(body or text, 260)}
             if view:
-                row.update({"confidence": view["confidence"], "risk_level": view["risk_level"]})
+                row.update({"confidence": view["confidence"], "risk_level": view["risk_level"], "p_beat_spy": view.get("p_beat_spy")})
             row["structured"] = bool(view)
             if a.get("failed_over_from"):
                 row["failed_over_from"] = a["failed_over_from"]
@@ -309,6 +309,7 @@ def _run_doc(
         "gate": cd.get("gate"),
         "risk": cd.get("risk"),
         "analyst_risk": cd.get("analyst_risk"),
+        "p_beat_spy": cd.get("p_beat_spy"),
         "votes": cd.get("votes"),
         "ceo": ceo_brief(decision, action, cd.get("gate"), cd.get("votes"), agents, cd.get("tally") or []),
         "context": context,
