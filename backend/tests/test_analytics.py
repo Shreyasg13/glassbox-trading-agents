@@ -153,7 +153,8 @@ def test_an_empty_database_gives_a_valid_zeroed_summary(real_db):
     assert len(s["series"]) == 7 and s["totals"]["pageviews"] == 0 and s["totals"]["signup_rate"] is None and s["pages"] == []
 
 
-def test_prune_removes_only_rows_past_retention(real_db):
+def test_prune_removes_only_rows_past_retention(real_db, monkeypatch):
+    monkeypatch.setattr(an.random, "random", lambda: 1.0)  # no housekeeping prune inside record_hit, whatever the global RNG state
     hit(now=NOW - timedelta(days=an.RETENTION_DAYS + 5))
     hit(now=NOW)
     assert an.prune(NOW) == 1 and len(rows(real_db)) == 1
