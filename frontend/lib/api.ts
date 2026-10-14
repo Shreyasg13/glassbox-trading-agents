@@ -1,7 +1,7 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8000/ws/signals";
 
-import type { ComplianceAction, ComplianceEvent, ComplianceRule, GateHealth, LedgerRow, LedgerVerify } from "@/lib/types";
+import type { ComplianceAction, ComplianceEvent, ComplianceRule, GateHealth, LedgerRow, LedgerVerify, WeeklyReportDetail, WeeklyReportSummary } from "@/lib/types";
 
 export function apiUrl(path: string): string {
   return `${API_URL}${path}`;
@@ -96,4 +96,24 @@ export async function fetchComplianceRules(token: string | undefined): Promise<C
 export async function fetchGateHealth(token: string | undefined, from: string, to: string): Promise<GateHealth> {
   const params = new URLSearchParams({ from, to });
   return apiFetch<GateHealth>(`/api/admin/gate-health?${params}`, { token });
+}
+
+// ---- Weekly discrepancy report (S3 T13) ----
+
+/** Every weekly report (drafts and published, newest week first), with its body -- for admin review. */
+export async function fetchWeeklyReportsAdmin(token: string | undefined): Promise<WeeklyReportDetail[]> {
+  return apiFetch<WeeklyReportDetail[]>(`/api/admin/weekly-reports`, { token });
+}
+
+export async function publishWeeklyReport(token: string | undefined, id: string): Promise<WeeklyReportDetail> {
+  return apiFetch<WeeklyReportDetail>(`/api/admin/weekly-reports/${encodeURIComponent(id)}/publish`, { method: "POST", token });
+}
+
+/** Published weekly reports only, newest week first -- the public transparency page. */
+export async function fetchWeeklyReportsPublic(): Promise<WeeklyReportSummary[]> {
+  return apiFetch<WeeklyReportSummary[]>(`/api/public/weekly-reports`);
+}
+
+export async function fetchWeeklyReportPublic(id: string): Promise<WeeklyReportDetail> {
+  return apiFetch<WeeklyReportDetail>(`/api/public/weekly-reports/${encodeURIComponent(id)}`);
 }
