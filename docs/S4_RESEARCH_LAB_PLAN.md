@@ -60,7 +60,7 @@ Each milestone is one branch `s4/<id>-<slug>` and one PR. Sizes as in S3: S unde
 | Claim | Minimum data | Earliest date |
 |---|---|---|
 | P5 evidence gate keeps unsupported numbers out | 20 trading days with enforce on | 2026-11-16 (if enforce starts 2026-10-19) |
-| P4 committee beats placebo on paper | 60 live days (16 on 2026-10-12) | about 2026-12-15 |
+| P4 committee beats placebo on paper | 60 live days counted from 2026-10-14 (window restarted after the 2026-10-13 prompt change) | about 2027-01-08 |
 | P1-P3 P(beat SPY) informative, ranks, calibrated | 400 calls over 60+ entry dates | about 2027-01-15 |
 | Fixed checkpoints | — | 2026-12-31, 2027-03-31 |
 

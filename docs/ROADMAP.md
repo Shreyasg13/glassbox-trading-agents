@@ -27,10 +27,10 @@ Oct 2026   14 L0 DSR fix · 17 T6 quarantine UI · 19 enforce on (owner) · 21 T
            23 L1 Lab + Strategies tab · 23 T13 first weekly report · 28 L2 Models tab · 30 L3 Market tab
 Nov 2026   02 apply: Anthropic External Researcher Access (after attorney check, owner)
            06 L4 cost-impact surface (3D) · 13 L5 auto-calibration built · 13 fourth weekly report (S3 exit possible)
-           16 P5 checkpoint (gate) · 20 L8 glassbox-eval package · 24 L5 first out-of-sample calibration result
-Dec 2026   04 L6 challenger loop · ~15 P4 checkpoint (committee vs placebo, 60 live days) · 18 L9 multi-model leaderboard
+           16 P5 checkpoint (gate; needs publish.enforce on by ~10-19, blocked until held reports can be released) · 20 L8 glassbox-eval package · 24 L5 first out-of-sample calibration result
+Dec 2026   04 L6 challenger loop · 18 L9 multi-model leaderboard
            31 fixed checkpoint: study refresh (L7)
-Jan 2027   13 literature re-check (quarterly) · ~15 P1-P3 checkpoint (400 P(beat SPY) calls, 60+ dates) · 29 L10 paper draft
+Jan 2027   ~08 P4 checkpoint (committee vs placebo, 60 live days from 10-14) · 13 literature re-check (quarterly) · ~15 P1-P3 checkpoint (400 P(beat SPY) calls, 60+ dates) · 29 L10 paper draft
 Mar 2027   31 fixed checkpoint: study refresh (L7)
 ```
 
@@ -53,7 +53,7 @@ Plans: [S4_RESEARCH_LAB_PLAN.md](S4_RESEARCH_LAB_PLAN.md) (L0-L7) · open S3 tas
 |---|---|
 | now | The method: forward-only, tamper-evident, auto-scored, pre-registered pipeline; traceability rates with n |
 | 2026-11-16 at the earliest | Whether the enforced gate keeps unsupported numbers out of published output (P5) |
-| about 2026-12-15 | Whether the committee beats the placebo on paper after cost (P4) |
+| about 2027-01-08 | Whether the committee beats the placebo on paper after cost (P4; 60 live days counted from 2026-10-14, see PREREGISTRATION.md) |
 | about 2027-01-15 | Whether the committee's P(beat SPY) is informative, ranks stocks, and is calibrated (P1-P3) |
 
 A checkpoint that fails is published as a failure. No claim is made before its row.

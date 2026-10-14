@@ -37,7 +37,7 @@ The verdicts below compare GlassBox against everything the notes covered. "Alrea
 |---|---|---|
 | Forward-only / live evaluation | DeepFund, AMA, LiveTradeBench, Alpha Arena, PortBench and CLQT live legs | **Already done by others** |
 | Point-in-time leakage control | CLQT TimeGate, OpenPM certificate | **Already done by others** (GlassBox avoids the issue entirely by being forward-only) |
-| Hash-chained call ledger | CLQT round hash chain, which authors say "does not provide non-repudiation against wholesale replacement and recomputation" ([CLQT](https://arxiv.org/html/2606.29771)); OpenPM snapshot hashes | **Hash chain: already done by others.** **External anchoring (public timestamp or transparency log): open gap.** GlassBox does not anchor yet; publishing the ledger head hash weekly is S3 task T13 |
+| Hash-chained call ledger | CLQT round hash chain, which authors say "does not provide non-repudiation against wholesale replacement and recomputation" ([CLQT](https://arxiv.org/html/2606.29771)); OpenPM snapshot hashes | **Hash chain: already done by others.** **External anchoring (public timestamp or transparency log): open gap.** GlassBox does not anchor yet; the weekly transparency report (S3 T13, PR #49) publishes the ledger head hash once deployed |
 | Pre-registered claims | None found | **Open gap** |
 | Placebo strategy | OpenPM Random-N and always-flat, replay only ([OpenPM](https://arxiv.org/html/2608.09988)) | **Random baseline already done by others in replay; a placebo running live alongside the agents is an open gap** |
 | Date-blocked shuffle (permutation) test | None found; CLQT's bootstrap is still "planned" | **Open gap** |
