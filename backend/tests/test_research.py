@@ -206,3 +206,8 @@ def test_evidence_table_deflated_sharpe_is_on_excess_over_placebo():
 def test_evidence_table_deflated_sharpe_none_without_placebo():
     rows = research.evidence_table([acct("ctl_engine", noise(80, 0.001, 0.01, 2)), acct("ctl_equal", noise(80, 0.0, 0.01, 3))])
     assert rows[0]["deflated_sharpe"] is None
+
+
+def test_evidence_table_deflated_sharpe_none_with_too_few_days():
+    rows = {r["id"]: r for r in research.evidence_table([acct("ctl_placebo", noise(2, 0.0, 0.01, 1)), acct("ctl_engine", noise(2, 0.001, 0.01, 2))])}
+    assert rows["ctl_engine"]["deflated_sharpe"] is None

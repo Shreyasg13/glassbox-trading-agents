@@ -124,6 +124,12 @@ def gate(candidate: Dict[str, Any], baseline: Dict[str, Any], n_comparisons: int
     return out
 
 
+def _dsr_vs_placebo(excess: Optional[List[float]], trials: List[float]) -> Optional[Dict[str, Any]]:
+    """None when there is no placebo series or too little data, never a half-filled dict without a dsr."""
+    d = deflated_sharpe(excess, trials) if excess is not None else None
+    return {**d, "vs": DSR_BASELINE} if d else None
+
+
 def evidence_table(accounts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     by = {a["id"]: a for a in accounts}
     # our own strategies plus every outside challenger in the arena: all judged by the same gate on the same days
@@ -150,7 +156,7 @@ def evidence_table(accounts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "live_days": live["live_days"],
                 "live_return": live["live_return"],
                 "vs": {bid: gate(c, by[bid], n_tests) for bid in BASELINES if bid in by and bid != cid},
-                "deflated_sharpe": (deflated_sharpe(daily[cid], trials) or {}) | {"vs": DSR_BASELINE} if cid in daily else None,
+                "deflated_sharpe": _dsr_vs_placebo(daily.get(cid), trials),
             }
         )
     return rows
