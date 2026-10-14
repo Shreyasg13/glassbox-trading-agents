@@ -382,6 +382,7 @@ def _write_report(d: str, docs: List[Dict[str, Any]]) -> bool:
             "model": "committee-vote",
             "title": "Investment Committee · daily review",
             "profile": key,
+            "run_ids": list(run_ids),  # links the report to its claims and gate results (evidence view)
             "narrative": report_text,
             "created_at": datetime.now(timezone.utc).isoformat(),
         },
