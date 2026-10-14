@@ -8,8 +8,7 @@ from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from .logging_config import request_id_var, setup_logging
-from .routers import admin, auth, committee, data, evidence, insights, jobs_ws, ledger, me, monte_carlo, oauth, paper, reports, strategy, tts, ws
-from .routers import admin, auth, committee, data, insights, jobs_ws, ledger, me, monte_carlo, oauth, paper, reports, strategy, tts, weekly_reports, ws
+from .routers import admin, auth, committee, data, evidence, insights, jobs_ws, ledger, me, monte_carlo, oauth, paper, reports, strategy, tts, weekly_reports, ws
 from .routers import analytics as analytics_routes
 from .routers import flags as flags_routes
 from .routers import inbox as inbox_routes
