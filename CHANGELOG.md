@@ -17,7 +17,7 @@ into a dated release with a git tag.
 ### Added
 - **Ledger track record page section** (T12d). The user track-record page now includes a "Ledger-scored calls" section
   that displays forward-only scored calls from the append-only ledger: per-horizon metric cards (1, 5, 20 days) with
-  count, hit rate, mean excess return, and rank IC; a detailed table with date, symbol, call, recorded-at (labelled
+  calls scored, per-decision hit rates, signed excess vs SPY and rank IC; a detailed table with date, symbol, call, recorded-at (labelled
   "recorded before outcome"), horizon, forward return, excess return, and right/wrong; and an empty state when no
   calls have been scored yet. Works at 400px width with horizontal table scrolling.
 - **Single publish exit** (`app/publish.py`) (T5). Every piece of system-generated text that reaches a user goes through
