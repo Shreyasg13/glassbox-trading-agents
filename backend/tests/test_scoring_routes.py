@@ -160,9 +160,9 @@ class TestLedgerTrackRecordRoute:
                 assert m["count"] == 3  # 3 calls per horizon
                 # With n=3 < min_n=10, metrics are None with reason "too few calls"
                 assert m["hit_rate"] is None
-                assert m["mean_excess_return"] is None
+                assert m["mean_signed_excess"] is None
                 assert m["rank_ic"] is None
-                assert m["reason"] == "too few calls"
+                assert m["reason"].startswith("too few BUY/SELL calls")
             # ledger_calls count should include the pre-ledger call (4 total)
             assert body["ledger_calls"] == 4
             # pre_ledger_note present
@@ -192,13 +192,15 @@ class TestLedgerTrackRecordRoute:
                         "score": sc["excess_return"] if sc["decision"] == "BUY" else (-sc["excess_return"] if sc["decision"] == "SELL" else 0),
                         "excess_return": sc["excess_return"],
                         "forward_return": sc["forward_return"],
+                        "horizon": sc["horizon"],
                     })
                 expected = scoring.metrics(metric_input)
                 actual = body["metrics"][str(h)]
                 assert actual["count"] == expected["count"]
                 # With n=3 < min_n=10, all metrics are None
                 assert actual["hit_rate"] == expected["hit_rate"]
-                assert actual["mean_excess_return"] == expected["mean_excess_return"]
+                assert actual["mean_signed_excess"] == expected["mean_signed_excess"]
+                assert actual["by_decision"] == expected["by_decision"]
                 assert actual["rank_ic"] == expected["rank_ic"]
                 assert actual["rank_ic_t"] == expected["rank_ic_t"]
                 assert actual["brier"] == expected["brier"]
@@ -219,7 +221,7 @@ class TestPublicTrackRecordSummaryRoute:
             assert set(body.keys()) == {"1", "5", "20"}
             for h in ("1", "5", "20"):
                 m = body[h]
-                assert set(m.keys()) == {"count", "hit_rate", "mean_excess_return", "rank_ic", "p_beat_spy"}
+                assert set(m.keys()) == {"count", "directional_count", "by_decision", "hit_rate", "mean_signed_excess", "rank_ic", "p_beat_spy"}
                 assert m["count"] == 3
 
     def test_no_call_id_or_symbol_in_response(self, real_db, monkeypatch):

@@ -630,7 +630,8 @@ def committee_scorecard(book: paper.PriceBook, runs: List[Dict[str, Any]], horiz
     def agg(vals: List[float], decision: str) -> Dict[str, Any]:
         if not vals:
             return {"n": 0, "mean_return": None, "hit_rate": None}
-        hit = sum(1 for v in vals if (v > 0 if decision != "SELL" else v < 0)) / len(vals)
+        # A HOLD has no direction to be right about on a raw return (the pre-registered HOLD rule needs SPY excess)
+        hit = None if decision == "HOLD" else sum(1 for v in vals if (v > 0 if decision == "BUY" else v < 0)) / len(vals)
         return {"n": len(vals), "mean_return": sum(vals) / len(vals), "hit_rate": hit}
 
     agree = [r for r in valid if r.get("agrees_with_engine") is not None]

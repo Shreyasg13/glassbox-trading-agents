@@ -471,13 +471,17 @@ export type LedgerScoredCall = {
   forward_return: number | null;
   benchmark_return: number | null;
   excess_return: number | null;
-  right: boolean;
+  right: boolean | null; // null: the pre-registered rule does not judge it (a HOLD outside the 5-day horizon)
 };
+
+export type DecisionStat = { n: number; scorable: number; hit_rate: number | null };
 
 export type LedgerMetrics = {
   count: number;
+  directional_count: number;
+  by_decision: Record<"BUY" | "SELL" | "HOLD", DecisionStat>;
   hit_rate: number | null;
-  mean_excess_return: number | null;
+  mean_signed_excess: number | null;
   rank_ic: number | null;
   rank_ic_t: number | null;
   brier: number | null;
@@ -502,8 +506,10 @@ export type PublicTrackRecordSummary = Record<
   string,
   {
     count: number;
+    directional_count: number;
+    by_decision: Record<"BUY" | "SELL" | "HOLD", DecisionStat>;
     hit_rate: number | null;
-    mean_excess_return: number | null;
+    mean_signed_excess: number | null;
     rank_ic: number | null;
   }
 >;
