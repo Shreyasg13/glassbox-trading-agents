@@ -18,7 +18,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from sqlalchemy import select
 
-from . import db
+from . import db, flags, ledger
 from .migrated_tables import claims_table, compliance_events_table, verification_results_table, weekly_reports_table
 from .verification import gate
 
@@ -179,6 +179,12 @@ def create_draft_for_week(week_start: date, now: Optional[datetime] = None) -> O
     now = now or datetime.now(timezone.utc)
     week = fetch_week(week_start)
     draft = build_draft(week["verification_rows"], week["compliance_rows"], week_start.isoformat())
+    # Publishing the chain head weekly anchors the ledger: a later rewrite of any earlier call changes every hash after
+    # it, so it can no longer match a head already on the public page.
+    head = ledger.head()
+    draft["ledger_head"] = {"seq": head["seq"], "hash": head["hash"], "recorded_at": head["recorded_at"]} if head else None
+    # In shadow mode failing outputs were still published; the public page must say so next to the pass rate.
+    draft["publish_enforce"] = bool(flags.flag("publish.enforce"))
     row = {
         "id": str(uuid.uuid4()),
         "week_start": week_start.isoformat(),
@@ -232,9 +238,11 @@ def publish(report_id: str, published_by: str, now: Optional[datetime] = None) -
     now = now or datetime.now(timezone.utc)
     published_at = now.isoformat()
     with db.engine.begin() as conn:
-        conn.execute(
+        res = conn.execute(
             weekly_reports_table.update()
-            .where(weekly_reports_table.c.id == report_id)
+            .where(weekly_reports_table.c.id == report_id, weekly_reports_table.c.status == "draft")  # two admins at once: one wins
             .values(status="published", published_at=published_at, published_by=published_by)
         )
+    if res.rowcount == 0:
+        raise AlreadyPublished(report_id)
     return get(report_id)

@@ -19,6 +19,12 @@ function ReportDetail({ id }: { id: string }) {
   const { body } = data;
   return (
     <div className="glass-panel flex flex-col gap-sp4 p-sp5">
+      {body.publish_enforce === false && (
+        <p className="rounded-r2 border border-gold/40 bg-gold/10 p-sp3 text-[12px] text-t2">
+          Shadow mode this week: the gate recorded these results but did not hold back failing outputs, so some
+          published text had numbers that failed a check.
+        </p>
+      )}
       <div className="grid gap-sp3 sm:grid-cols-3">
         <div>
           <div className="text-[11px] uppercase text-t3">Runs checked</div>
@@ -59,6 +65,13 @@ function ReportDetail({ id }: { id: string }) {
           </ul>
         </div>
       </div>
+      {body.ledger_head && (
+        <p className="text-[11.5px] text-t3">
+          Call ledger at draft time: entry #{body.ledger_head.seq}, hash{" "}
+          <span className="mono break-all text-t2">{body.ledger_head.hash}</span>. Every recorded call is chained to this
+          hash, so an edit to any earlier call would no longer match it.
+        </p>
+      )}
     </div>
   );
 }

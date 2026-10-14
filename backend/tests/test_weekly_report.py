@@ -297,3 +297,19 @@ def test_public_detail_404_for_an_unknown_id(report_db):
 
     client = TestClient(app)
     assert client.get("/api/public/weekly-reports/no-such-id").status_code == 404
+
+
+def test_draft_records_ledger_head_and_enforce_state(report_db):
+    from app import flags, ledger
+
+    flags.clear_cache()
+    first = json.loads(wr.create_draft_for_week(date(2026, 9, 7))["body_json"])
+    assert first["ledger_head"] is None and first["publish_enforce"] is False
+
+    ledger.append("call-1", "AAPL", "committee_decision", {"decision": "HOLD", "confidence": 0.6})
+    flags.set_flag("publish.enforce", True, "admin")
+    second = json.loads(wr.create_draft_for_week(date(2026, 9, 14))["body_json"])
+    head = ledger.head()
+    assert second["ledger_head"] == {"seq": head["seq"], "hash": head["hash"], "recorded_at": head["recorded_at"]}
+    assert second["publish_enforce"] is True
+    flags.clear_cache()

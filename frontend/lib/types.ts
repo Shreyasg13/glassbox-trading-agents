@@ -657,6 +657,9 @@ export type WeeklyReportBody = {
   top_failing_checks: { check_type: string; failures: number; top_reason: string | null }[];
   top_failing_metrics: { metric: string; failures: number; claims: number }[];
   a7_by_action: { blocked: number; rewritten: number; flagged: number };
+  // absent on drafts made before these fields existed
+  ledger_head?: { seq: number; hash: string; recorded_at: string } | null;
+  publish_enforce?: boolean;
 };
 
 export type WeeklyReportDetail = WeeklyReportSummary & { body: WeeklyReportBody };
