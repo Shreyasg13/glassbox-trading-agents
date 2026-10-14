@@ -65,3 +65,17 @@ returns, and the trial set is every candidate's excess Sharpe. Reason: on raw re
 market clears 0.95 without skill (shown by a test). This makes P4 stricter, not looser. Disclosure: 16 live paper days had
 already been observed when this changed; the raw-return DSRs then were all below 0.95 (0.69 to 0.73), so the change did
 not turn a fail into a pass.
+
+**2026-10-13 (P4 reconciled with R0).** `docs/research/R0_PREREGISTRATION.md` (drafted 2026-10-07, PR #51) and P4 test the
+same claim with different rules. One protocol now applies; every change below is stricter, and no data from the new
+window exists yet.
+- **Window.** P4 counts only live days from **2026-10-14**. The committee prompt changed on 2026-10-13 (PR #54, P(beat
+  SPY) on every call), and R0 §6 ends the window on any prompt change. Days before 2026-10-14, including the 16 above,
+  are reported separately and never pooled.
+- **Looks.** Primary at 60 live days (about 2027-01-08), final at 120 (about 2027-04-07). The 2026-12-31 checkpoint
+  above is reported for P4 as descriptive only: it falls before the minimum data.
+- **Pass rule.** All three must hold at a look: (1) R0's moving-block bootstrap (block 10 days, 10,000 resamples, seed
+  20261007) of daily `ctl_committee − ctl_placebo` gives a lower bound above 0 at **α = 0.005 per look** (the family
+  α of 0.01 split over two looks: a 99.5% interval); (2) `research.gate` returns the verdict **"edge"** (the table's
+  "pass" names no coded verdict; "edge" is the coded one); (3) the deflated Sharpe on excess over the placebo is above
+  0.95.
