@@ -6,6 +6,8 @@ or scope changes — this is the single place to check "where are we" and
 
 **Last updated:** 2026-09-11 (Phase 14 + voice-cache fix)
 
+> **2026-10-13:** phases after 14 (S3 trust layer, S4 Research Lab) are tracked in [ROADMAP.md](ROADMAP.md). This file keeps the Phase 0-14 history as written.
+
 ## Live deployment
 
 | | |

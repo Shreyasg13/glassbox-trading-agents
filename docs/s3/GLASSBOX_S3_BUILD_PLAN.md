@@ -325,7 +325,7 @@ ADMIN   GET  /admin/flags      POST /admin/flags/{key}
 - [x] T2 Baseline discrepancy script
 - [x] T3 Structured claim output
 - [x] T4 A6 verification gate
-- [ ] T5 Route all outputs through `publish()`
+- [x] T5 Route all outputs through `publish()` (2026-09-28; runs in shadow mode until `publish.enforce` is switched on, which waits for T6)
 - [ ] T6 Quarantine and admin review
 - [x] T7 User evidence view
 - [x] T8 A7 compliance filter (filter built; wired into outputs by T5)
@@ -333,6 +333,7 @@ ADMIN   GET  /admin/flags      POST /admin/flags/{key}
 - [x] T10 Point-in-time snapshot store
 - [x] T11 Hash-chained ledger
 - [x] T12 Forward-only scoring
+- [x] T12 Forward-only scoring (2026-09-29; fixes and P(beat SPY) 2026-10-12)
 - [ ] T13 Weekly discrepancy report
 - [ ] T12 Forward-only scoring
 - [x] T13 Weekly discrepancy report
@@ -389,3 +390,11 @@ ADMIN   GET  /admin/flags      POST /admin/flags/{key}
 | 2026-09-29 | T12d | Ledger track record page section: per-horizon metric cards (1/5/20 days) with calls scored, BUY/SELL/HOLD hit rates by the pre-registered rule (shown from 30 calls), average signed excess vs SPY and rank IC on BUY/SELL; detailed table with date, symbol, call, recorded-at (labelled "recorded before outcome"), horizon, forward return, excess return, right/wrong/unscored; empty state when no calls scored; works at 400px with horizontal scroll. `fetchLedgerTrackRecord` helper in `api.ts`. Frontend only. | branch `s3/T12d-scoring-page` |
 | 2026-09-29 | T7 | User evidence view, "Show my work" (no migration): `GET /api/reports/narratives/{id}/evidence` (`require_role("user")`) reads the report's `run_ids`, joins `claims` and `verification_results` (a staleness warn does not disqualify a claim, same rule as the gate badge; a claim with no recorded check counts as not passed) and returns only `{claim_id, label, metric, value, unit, source, field_path, as_of, passed}` plus a top-level `verified`; enforced with `response_model` so nothing else can leak. 404s exactly like the report itself (same `content_ref` check, same `output.reports` kill switch) for a quarantined or hidden narrative. Frontend: `EvidencePanel.tsx` badge + expandable claim list on the report view, USER-role only (renders nothing signed out). 6 new tests. Review fixes (2026-10-13): the daily report stores its `run_ids` (older reports match their day's runs by date), `pct` claims shown on their real scale (fractions, percent points, percentile), as-of = the snapshot's `as_of`, three queries instead of one per claim, quarantine matched on id or profile | branch `s3/T7-evidence-view` |
 | 2026-09-29 | T13 | `weekly_reports` (Alembic 0009): pure `build_draft()` (runs checked, A6 pass rate via `gate.summarize`, top 5 failing checks/metrics, A7 events by action, counts only) + a small db layer (`app/weekly_report.py`); idempotent Monday job (`app/scripts/weekly_report.py`) wired as the pipeline's new `weekly_report` stage (Mondays only, never raises); `GET/POST /api/admin/weekly-reports` (list + publish, draft -> published, 409 on a second publish) and `GET /api/public/weekly-reports[/{id}]` (published only, drafts 404); admin Weekly Reports tab and the public `/transparency` page. 19 new tests plus 2 pipeline + 2 migration tests | branch `s3/T13-weekly-report` |
+| 2026-09-28 | T5 | `publish()` single exit with A6 and A7 checks, ledger append and quarantine (Alembic 0007); shadow mode by default, `publish.enforce` flag holds failing outputs; enforce-mode tests in T5b | PR #37, #42 |
+| 2026-09-29 | T12 | `call_outcomes` (Alembic 0008), `scoring.py` (pure: eligibility before 09:30 ET, excess vs SPY, Brier, rank IC, calibration), daily `score_ledger` job, user and public track-record routes | PR #39, #40, #43 |
+| 2026-09-29 | T18a | Risk metrics core (pure functions); outside the original T-list, from the strategy review | PR #44 |
+| 2026-10-12 | T12 fix | First forward-only study on production data found three bugs: public track record returned 500 once a horizon reached 10 calls, the ledger's 0-1 vote share was read as 0-100, and confidence 100 fell outside every calibration bin. PyJWT 2.15.0 for the CI audit gate | PR #53 |
+| 2026-10-12 | T12 ext | 149 of 150 calls were HOLD, which scores 0. Analysts now state P(beat SPY over 5 days) on every call; `scoring.prob_metrics`; `docs/s3/PREREGISTRATION.md` fixes claims P1-P5 before outcomes | PR #54 |
+| 2026-10-12 | T12 ext | Date-blocked shuffle test, deflated Sharpe on the evidence table, `app.scripts.forward_study`. Deployed as 6651a1a on 2026-10-13 | PR #55 |
+
+Further work moves to S4: see [../S4_RESEARCH_LAB_PLAN.md](../S4_RESEARCH_LAB_PLAN.md) and [../ROADMAP.md](../ROADMAP.md). T6, T7, T13 and T15 stay S3 tasks.
