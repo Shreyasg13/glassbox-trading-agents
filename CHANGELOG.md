@@ -6,7 +6,20 @@ into a dated release with a git tag.
 
 ## [Unreleased]
 
+### Fixed
+- **Track-record metrics follow the pre-registered rule** (`docs/s3/PREREGISTRATION.md`). Hit rate, Brier and calibration
+  counted every HOLD as wrong (149 of the first 150 calls were HOLD, so the public hit rate read 0%), the mean excess
+  return ignored the call's direction, and rank IC was driven by one BUY among ties. Now: `scoring.is_right` (BUY beats
+  SPY, SELL lags it, HOLD within 1% at 5 days; other HOLDs unscored), per-decision hit rates shown only from 30 calls,
+  `mean_signed_excess` and rank IC on BUY/SELL only. One shared `scoring.scored_calls()` replaces three copies of the join.
+  The committee scorecard no longer calls a HOLD "right" when the raw price rose.
+
 ### Added
+- **Ledger track record page section** (T12d). The user track-record page now includes a "Ledger-scored calls" section
+  that displays forward-only scored calls from the append-only ledger: per-horizon metric cards (1, 5, 20 days) with
+  calls scored, per-decision hit rates, signed excess vs SPY and rank IC; a detailed table with date, symbol, call, recorded-at (labelled
+  "recorded before outcome"), horizon, forward return, excess return, and right/wrong; and an empty state when no
+  calls have been scored yet. Works at 400px width with horizontal table scrolling.
 - **Single publish exit** (`app/publish.py`) (T5). Every piece of system-generated text that reaches a user goes through
   `publish()` (or `publish_simple()` for non-committee outputs). It runs the A6 gate (for committee outputs) and the A7
   compliance filter, records the verdict, and either allows or holds the text depending on the `publish.enforce` flag.
@@ -57,6 +70,35 @@ into a dated release with a git tag.
   reason, and the five claim metrics that fail most often. Ask and challenger runs are not counted. Read-only:
   `GET /api/admin/gate-health?from=&to=` (admin only) aggregates the existing `verification_results` and `claims` tables;
   no migration.
+- **User evidence view, "Show my work"** (T7). `GET /api/reports/narratives/{id}/evidence` (`require_role("user")`, 401
+  signed out) returns `{verified, claims: [{claim_id, label, metric, value, unit, source, field_path, as_of, passed}]}` for the
+  report's committee runs (`run_ids` stored on the report; older reports match their day's runs): `verified` is true only if every claim passed the A6 gate. A quarantined narrative 404s
+  exactly like the report itself (same content_ref check as `GET /api/reports/narratives/{id}`), and the kill switch
+  (`output.reports`) hides it the same way too. Nothing internal ever leaves this endpoint: no failure reason, check
+  name, raw snapshot payload or quarantine detail, only the fields above (`response_model` enforces this even if a
+  future edit adds one by mistake). Source names are shown with a friendly label (`sec_facts` -> "SEC", `bls` -> "BLS",
+  etc.) instead of the internal snake_case name. Frontend: `EvidencePanel.tsx` adds a "Verified" / "Not fully verified"
+  badge and an expandable "Show my work" list to the report view (`app/(app)/reports/[id]/page.tsx`); clicking a claim
+  highlights it and shows its source, field path and the data's as-of date. The panel is USER-role only and renders nothing when
+  signed out, since the report page itself stays public.
+- **Weekly discrepancy report** (T13). `weekly_reports` table (Alembic 0009): id, week_start (unique), status
+  (`draft`|`published`), body_json, created_at, published_at/by. A pure `build_draft()` (`app/weekly_report.py`) summarizes
+  one Mon-Sun week from `verification_results` and `compliance_events`: runs checked, the A6 pass rate (`gate.summarize`'s
+  own rule, so it can never count differently from the badge or Gate health), the top 5 failing checks and metrics, and
+  A7 events by action (`blocked`/`rewritten`/`flagged`) -- counts only, no raw payloads, no user data. An idempotent job
+  (`app/scripts/weekly_report.py`) drafts the previous week every Monday, wired as the daily pipeline's new
+  `weekly_report` stage (last in `STAGE_ORDER`; skips on any other day, never raises). Admin reviews and publishes a
+  draft (`GET/POST /api/admin/weekly-reports[/{id}/publish]`; publishing twice is a 409; a published report has no edit
+  route). Public transparency page at `/transparency` and `GET /api/public/weekly-reports[/{id}]` show published
+  reports only, newest first; a draft is never visible there (404).
+- **Quarantine review** (T6). `POST /api/admin/quarantine/{id}/approve` re-runs the A6 gate and the A7 filter for the
+  item's run/content (`publish.recheck_quarantine_item`, used only by this route, never by `publish()`); if both still
+  pass it approves; if either still fails it returns 409 with the failing checks unless an `override_reason` (>= 10
+  characters) is given, in which case it approves anyway and stores the reason and the reviewer.
+  `POST /api/admin/quarantine/{id}/reject` rejects with a required `note`. Both write an audit log entry and use the
+  existing `quarantine_items` columns (`reviewer_id`, `review_note`, `reviewed_at`) -- no migration. New admin page,
+  Admin → Quarantine: pending items first (stage, channel, reason, created), with Approve / Approve with override /
+  Reject actions.
 
 ### Changed
 - Removed the "For Advisors" section and its nav link. It pitched paid advisor features (white-label, multi-client,
@@ -69,6 +111,10 @@ into a dated release with a git tag.
   the reason (that number is then not counted as verified) and the rest of the run is still recorded.
 - Re-running the claims step for a saved decision no longer duplicates its claims: the claims table is append-only, so the
   first set stored for a run is kept and reused. Narrative rows for a run are replaced instead of failing on a duplicate.
+- `POST /api/admin/quarantine/{id}/action` and `GET /api/admin/quarantine` (T6) referenced columns the `quarantine_items`
+  table does not have (`reason`, `decided_at`, `decided_by` instead of `reasons_json`, `reviewed_at`, `reviewer_id`); the
+  action route raised a SQLAlchemy `CompileError` on every call. Both now read/write the real columns; behaviour and
+  response shape are unchanged.
 
 ### Built but switched off
 - The compliance filter is not yet called by any output (report, digest, assistant, speech); T5 wires it into `publish()`
@@ -78,15 +124,6 @@ into a dated release with a git tag.
 - A performance mention passes when the text carries any `{{ledger:...}}` reference, not one next to each mention; it is
   flagged, not blocked, until T12 renders ledger references. The phrase lists are English only and deliberately short to
   avoid false positives on research wording, so they will not catch every paraphrase.
-
-## [s3-part1] — 2026-09-26 — S3 "Trustworthy MVP", part 1 (T0–T4, T9, T10, T11)
-
-The goal of S3: nothing reaches a user, is scored as a track record, or appears in marketing unless it passed a verification gate
-and a compliance filter and was written to an append-only ledger. This part builds the foundations: a point-in-time data store,
-structured claims, the verification gate and the ledger. **Nothing blocks or changes what users see yet**; the single publish
-exit (T5) will switch the gate on. Committee decision logic is unchanged (tests prove the saved decisions are identical).
-
-### What users will notice
 - The website no longer claims an "A6 Auditor badge" or a live "Discrepancy Rate dashboard"; both now say "coming" until they
   exist (P1, #20).
 - The research disclaimer reads the same everywhere: "Simulated research, not investment advice." The committee report and the

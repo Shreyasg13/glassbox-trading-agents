@@ -50,7 +50,7 @@ LOCK_BLOB = "state/pipeline.lock"
 HISTORY_KEEP = 30
 
 FATAL_STAGES = {"paper_cycle"}
-STAGE_ORDER = ["free_data", "committee", "paper_cycle", "score_ledger", "weekly_research", "snapshot", "mirror", "notifications", "digest_email", "user_digests"]
+STAGE_ORDER = ["free_data", "committee", "paper_cycle", "score_ledger", "weekly_research", "snapshot", "mirror", "notifications", "digest_email", "user_digests", "weekly_report"]
 
 
 # ------------------------------------------------------------------- time --
@@ -257,9 +257,24 @@ def default_stages(target: str) -> Dict[str, Callable[[], Any]]:
 
         return user_digest.run()
 
+    def weekly_report() -> Any:
+        """The weekly discrepancy report draft (S3 T13): Mondays only, and this stage must never raise -- a failure
+        here (e.g. the DB not migrated yet) must never hold up the rest of the pipeline."""
+        if date.fromisoformat(target).weekday() != 0:
+            return {"skipped": "not monday"}
+        from . import weekly_report as wr
+
+        try:
+            row = wr.create_draft_for_week(wr.previous_week_start(date.fromisoformat(target)))
+        except Exception as exc:  # noqa: BLE001 -- see docstring
+            log.error("weekly_report stage failed: %s", exc)
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        return {"ok": True, "created": row is not None}
+
     return {
         "free_data": free_data, "committee": committee, "paper_cycle": paper_cycle, "score_ledger": score_ledger,
         "weekly_research": weekly_research, "snapshot": snapshot, "mirror": mirror, "notifications": notifications_stage, "digest_email": digest_email, "user_digests": user_digests,
+        "weekly_report": weekly_report,
     }
 
 

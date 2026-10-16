@@ -88,7 +88,7 @@ export function CommitteePanel() {
             const c = sc.by_decision[d]["5"];
             return (
               <span key={d} className="mr-sp3">
-                <span className={badge(d)}>{d}</span> 5-day: {c.n ? `${pct(c.mean_return)}, hit ${Math.round((c.hit_rate ?? 0) * 100)}% (n=${c.n})` : "no scored calls yet"}
+                <span className={badge(d)}>{d}</span> 5-day: {c.n ? `${pct(c.mean_return)}, ${c.hit_rate === null ? "hit n/a" : `hit ${Math.round(c.hit_rate * 100)}%`} (n=${c.n})` : "no scored calls yet"}
               </span>
             );
           })}

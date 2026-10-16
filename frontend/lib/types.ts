@@ -108,6 +108,26 @@ export type DailyReportNarrative = {
   profile?: string | null;
 };
 
+// ---- "Show my work" evidence view (S3 T7) ----
+// GET /api/reports/narratives/{id}/evidence -- deliberately never carries failure
+// reasons, raw snapshot payloads, check names or quarantine details; see backend/app/routers/evidence.py.
+export type EvidenceClaim = {
+  claim_id: string;
+  label: string; // "<TICKER> <metric>", e.g. "AAPL revenue_growth"
+  metric: string;
+  value: number;
+  unit: string;
+  source: string; // friendly source label, e.g. "SEC", "BLS", "Market data"
+  field_path: string | null;
+  as_of: string | null;
+  passed: boolean;
+};
+
+export type NarrativeEvidence = {
+  verified: boolean;
+  claims: EvidenceClaim[];
+};
+
 export const DEFAULT_AGENT_PARAMS: AgentParams = {
   temperature: 0.7,
   top_p: 1.0,
@@ -471,13 +491,17 @@ export type LedgerScoredCall = {
   forward_return: number | null;
   benchmark_return: number | null;
   excess_return: number | null;
-  right: boolean;
+  right: boolean | null; // null: the pre-registered rule does not judge it (a HOLD outside the 5-day horizon)
 };
+
+export type DecisionStat = { n: number; scorable: number; hit_rate: number | null };
 
 export type LedgerMetrics = {
   count: number;
+  directional_count: number;
+  by_decision: Record<"BUY" | "SELL" | "HOLD", DecisionStat>;
   hit_rate: number | null;
-  mean_excess_return: number | null;
+  mean_signed_excess: number | null;
   rank_ic: number | null;
   rank_ic_t: number | null;
   brier: number | null;
@@ -502,8 +526,10 @@ export type PublicTrackRecordSummary = Record<
   string,
   {
     count: number;
+    directional_count: number;
+    by_decision: Record<"BUY" | "SELL" | "HOLD", DecisionStat>;
     hit_rate: number | null;
-    mean_excess_return: number | null;
+    mean_signed_excess: number | null;
     rank_ic: number | null;
   }
 >;
@@ -635,4 +661,48 @@ export type GateHealth = {
   totals: Omit<GateHealthDay, "date">;
   top_checks: GateHealthCheck[];
   top_metrics: GateHealthMetric[];
+};
+
+// ---- Weekly discrepancy report (admin + public, S3 T13) ----
+
+export type WeeklyReportStatus = "draft" | "published";
+
+export type WeeklyReportSummary = {
+  id: string;
+  week_start: string;
+  status: WeeklyReportStatus;
+  created_at: string;
+  published_at: string | null;
+  published_by: string | null;
+};
+
+export type WeeklyReportBody = {
+  week_start: string;
+  runs_checked: number;
+  a6: { runs_checked: number; runs_ok: number; claims_checked: number; claims_verified: number; pass_rate: number | null };
+  top_failing_checks: { check_type: string; failures: number; top_reason: string | null }[];
+  top_failing_metrics: { metric: string; failures: number; claims: number }[];
+  a7_by_action: { blocked: number; rewritten: number; flagged: number };
+  // absent on drafts made before these fields existed
+  ledger_head?: { seq: number; hash: string; recorded_at: string } | null;
+  publish_enforce?: boolean;
+};
+
+export type WeeklyReportDetail = WeeklyReportSummary & { body: WeeklyReportBody };
+
+// ---- Quarantine review (admin, S3 T6) ----
+
+export type QuarantineStatus = "pending" | "approved" | "rejected" | "shadow";
+
+export type QuarantineItem = {
+  id: string;
+  channel: string;
+  run_id: string | null;
+  content_ref: string;
+  stage: "A6" | "A7";
+  status: QuarantineStatus;
+  reason: string | null;
+  created_at: string;
+  decided_at: string | null;
+  decided_by: string | null;
 };

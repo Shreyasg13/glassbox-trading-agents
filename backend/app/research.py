@@ -43,6 +43,7 @@ CANDIDATES = {
     "ctl_voltarget": "Volatility-targeted",
     "ctl_committee": "Engine + committee",
 }
+DSR_BASELINE = "ctl_placebo"  # deflated Sharpe is computed on daily excess over this account
 BASELINES = {"ctl_equal": "equal-weight hold of the same stocks", "ctl_placebo": "the scrambled-signal placebo"}
 
 
@@ -96,12 +97,16 @@ def bootstrap_mean_ci(xs: List[float], lo_q: float, hi_q: float, n: int = BOOTST
     return means[int(lo_q * n)], means[min(n - 1, int(hi_q * n))]
 
 
+def excess_returns(candidate: Dict[str, Any], baseline: Dict[str, Any]) -> List[float]:
+    """Candidate minus baseline daily return, on the live days both accounts have."""
+    rc, rb = live_returns(candidate), live_returns(baseline)
+    return [rc[d] - rb[d] for d in sorted(set(rc) & set(rb))]
+
+
 def gate(candidate: Dict[str, Any], baseline: Dict[str, Any], n_comparisons: int = 1) -> Dict[str, Any]:
     """Has `candidate` beaten `baseline` out-of-sample? 'edge' only when the lower confidence bound of the mean
     daily excess return is above zero at a level corrected for `n_comparisons`, after MIN_LIVE_DAYS days."""
-    rc, rb = live_returns(candidate), live_returns(baseline)
-    days = sorted(set(rc) & set(rb))
-    excess = [rc[d] - rb[d] for d in days]
+    excess = excess_returns(candidate, baseline)
     out: Dict[str, Any] = {
         "n_days": len(excess),
         "needed_days": MIN_LIVE_DAYS,
@@ -119,14 +124,23 @@ def gate(candidate: Dict[str, Any], baseline: Dict[str, Any], n_comparisons: int
     return out
 
 
+def _dsr_vs_placebo(excess: Optional[List[float]], trials: List[float]) -> Optional[Dict[str, Any]]:
+    """None when there is no placebo series or too little data, never a half-filled dict without a dsr."""
+    d = deflated_sharpe(excess, trials) if excess is not None else None
+    return {**d, "vs": DSR_BASELINE} if d else None
+
+
 def evidence_table(accounts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     by = {a["id"]: a for a in accounts}
     # our own strategies plus every outside challenger in the arena: all judged by the same gate on the same days
     candidates = dict(CANDIDATES)
     candidates.update({a["id"]: a["name"] for a in accounts if a.get("strategy") == "external_tilt"})
     n_tests = len(candidates) * len(BASELINES)  # every candidate vs every yardstick: correct for all of them
-    # every candidate counts as a trial, so the best-looking one is judged against the luck of the whole field
-    daily = {cid: list(live_returns(by[cid]).values()) for cid in candidates if cid in by}
+    # Deflated Sharpe of the daily excess over the placebo, not raw returns: in a rising market any mostly-long strategy
+    # has a positive raw Sharpe without skill. Every candidate counts as a trial, so the best-looking one is judged
+    # against the luck of the whole field.
+    placebo = by.get(DSR_BASELINE)
+    daily = {cid: excess_returns(by[cid], placebo) for cid in candidates if cid in by and placebo is not None and cid != DSR_BASELINE}
     trials = [s for s in (sharpe(xs) for xs in daily.values()) if s is not None]
     rows = []
     for cid, name in candidates.items():
@@ -142,7 +156,7 @@ def evidence_table(accounts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "live_days": live["live_days"],
                 "live_return": live["live_return"],
                 "vs": {bid: gate(c, by[bid], n_tests) for bid in BASELINES if bid in by and bid != cid},
-                "deflated_sharpe": deflated_sharpe(daily[cid], trials),
+                "deflated_sharpe": _dsr_vs_placebo(daily.get(cid), trials),
             }
         )
     return rows

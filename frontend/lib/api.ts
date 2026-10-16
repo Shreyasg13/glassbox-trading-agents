@@ -1,7 +1,7 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8000/ws/signals";
 
-import type { ComplianceAction, ComplianceEvent, ComplianceRule, GateHealth, LedgerRow, LedgerVerify } from "@/lib/types";
+import type { ComplianceAction, ComplianceEvent, ComplianceRule, GateHealth, LedgerRow, LedgerVerify, LedgerTrackRecord, NarrativeEvidence, WeeklyReportDetail, WeeklyReportSummary, QuarantineItem, QuarantineStatus } from "@/lib/types";
 
 export function apiUrl(path: string): string {
   return `${API_URL}${path}`;
@@ -73,6 +73,12 @@ export async function verifyLedger(token: string | undefined): Promise<LedgerVer
   return apiFetch<LedgerVerify>(`/api/admin/ledger/verify`, { token, method: "POST" });
 }
 
+// ---- Ledger Track Record API (S3 T12d) ----
+
+export async function fetchLedgerTrackRecord(token: string | undefined): Promise<LedgerTrackRecord> {
+  return apiFetch<LedgerTrackRecord>(`/api/me/ledger-track-record`, { token });
+}
+
 // ---- Compliance API ----
 
 export async function fetchComplianceEvents(
@@ -90,10 +96,98 @@ export async function fetchComplianceRules(token: string | undefined): Promise<C
   return apiFetch<ComplianceRule[]>(`/api/admin/compliance/rules`, { token });
 }
 
+// ---- Evidence ("Show my work") API (S3 T7) ----
+
+/** The claims behind a report narrative's numbers, each checked against the A6 gate. USER-role only (401 if signed out). */
+export async function fetchNarrativeEvidence(token: string | undefined, narrativeId: string): Promise<NarrativeEvidence> {
+  return apiFetch<NarrativeEvidence>(`/api/reports/narratives/${narrativeId}/evidence`, { token });
+}
+
 // ---- Gate health API (S3 T14) ----
 
 /** Daily claim pass rate and top failing checks/metrics for committee runs dated from..to (YYYY-MM-DD, inclusive). */
 export async function fetchGateHealth(token: string | undefined, from: string, to: string): Promise<GateHealth> {
   const params = new URLSearchParams({ from, to });
   return apiFetch<GateHealth>(`/api/admin/gate-health?${params}`, { token });
+}
+
+// ---- Weekly discrepancy report (S3 T13) ----
+
+/** Every weekly report (drafts and published, newest week first), with its body -- for admin review. */
+export async function fetchWeeklyReportsAdmin(token: string | undefined): Promise<WeeklyReportDetail[]> {
+  return apiFetch<WeeklyReportDetail[]>(`/api/admin/weekly-reports`, { token });
+}
+
+export async function publishWeeklyReport(token: string | undefined, id: string): Promise<WeeklyReportDetail> {
+  return apiFetch<WeeklyReportDetail>(`/api/admin/weekly-reports/${encodeURIComponent(id)}/publish`, { method: "POST", token });
+}
+
+/** Published weekly reports only, newest week first -- the public transparency page. */
+export async function fetchWeeklyReportsPublic(): Promise<WeeklyReportSummary[]> {
+  return apiFetch<WeeklyReportSummary[]>(`/api/public/weekly-reports`);
+}
+
+export async function fetchWeeklyReportPublic(id: string): Promise<WeeklyReportDetail> {
+  return apiFetch<WeeklyReportDetail>(`/api/public/weekly-reports/${encodeURIComponent(id)}`);
+}
+
+// ---- Quarantine review API (S3 T6) ----
+
+export async function fetchQuarantine(
+  token: string | undefined,
+  status?: QuarantineStatus | ""
+): Promise<QuarantineItem[]> {
+  const params = new URLSearchParams({ limit: "200" });
+  if (status) params.set("status", status);
+  return apiFetch<QuarantineItem[]>(`/api/admin/quarantine?${params}`, { token });
+}
+
+/** Thrown by approveQuarantineItem when the gates still fail and no override was given (HTTP 409):
+ * carries the failing checks so the caller can show them and offer "approve with override" instead. */
+export class QuarantineGateFailureError extends ApiError {
+  failingChecks: string[];
+  constructor(failingChecks: string[]) {
+    super(409, "Quarantine gates still fail");
+    this.failingChecks = failingChecks;
+  }
+}
+
+/** Re-runs A6+A7 for the item. Passing checks -> approved. Still failing with no overrideReason ->
+ * throws QuarantineGateFailureError; pass overrideReason (>= 10 characters) to approve anyway. */
+export async function approveQuarantineItem(
+  token: string | undefined,
+  itemId: string,
+  overrideReason?: string
+): Promise<QuarantineItem> {
+  const res = await fetch(apiUrl(`/api/admin/quarantine/${encodeURIComponent(itemId)}/approve`), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ override_reason: overrideReason || undefined }),
+  });
+  if (res.status === 409) {
+    const body = await res.json().catch(() => ({}));
+    throw new QuarantineGateFailureError(Array.isArray(body?.detail?.failing_checks) ? body.detail.failing_checks : []);
+  }
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch {
+      // no JSON body
+    }
+    throw new ApiError(res.status, detail);
+  }
+  return res.json() as Promise<QuarantineItem>;
+}
+
+export async function rejectQuarantineItem(token: string | undefined, itemId: string, note: string): Promise<QuarantineItem> {
+  return apiFetch<QuarantineItem>(`/api/admin/quarantine/${encodeURIComponent(itemId)}/reject`, {
+    token,
+    method: "POST",
+    body: JSON.stringify({ note }),
+  });
 }

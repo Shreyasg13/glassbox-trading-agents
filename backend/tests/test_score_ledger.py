@@ -503,8 +503,35 @@ def test_load_ledger_calls_scales_vote_share_to_percent(monkeypatch):
 
 
 def test_calibration_top_bin_includes_100():
-    rows = [{"decision": "BUY", "confidence": 100, "score": 0.01, "excess_return": 0.01, "forward_return": 0.01 * i} for i in range(10)]
+    rows = [{"decision": "BUY", "confidence": 100, "score": 0.01, "excess_return": 0.01, "forward_return": 0.01 * i, "horizon": 5} for i in range(10)]
     assert scoring.metrics(rows)["calibration"][4]["n"] == 10
+
+
+def test_is_right_follows_the_preregistered_rule():
+    r = lambda d, x, h=5: scoring.is_right({"decision": d, "excess_return": x, "horizon": h})
+    assert r("BUY", 0.01) and not r("BUY", -0.01) and r("SELL", -0.01) and not r("SELL", 0.01)
+    assert r("HOLD", 0.009) and r("HOLD", -0.01) and not r("HOLD", 0.011)
+    assert r("HOLD", 0.0, h=1) is None and r("HOLD", 0.0, h=20) is None  # band registered for 5 days only
+    assert r("BUY", 0.02, h=1) is True and r("BUY", None) is None
+
+
+def test_hold_heavy_sample_shows_no_fake_zero_hit_rate():
+    # the first forward study: almost all HOLD. Old metrics() reported hit rate 0.0 and a rank IC driven by one BUY.
+    rows = [{"decision": "HOLD", "confidence": 60, "excess_return": 0.002 * (i % 7 - 3), "horizon": 1, "forward_return": 0.0} for i in range(40)]
+    rows.append({"decision": "BUY", "confidence": 70, "excess_return": 0.03, "horizon": 1, "forward_return": 0.03})
+    m = scoring.metrics(rows)
+    assert m["count"] == 41 and m["directional_count"] == 1
+    assert m["hit_rate"] is None and m["mean_signed_excess"] is None and m["rank_ic"] is None
+    assert m["brier"] is None and m["by_decision"]["HOLD"] == {"n": 40, "scorable": 0, "hit_rate": None}
+    m5 = scoring.metrics([dict(c, horizon=5) for c in rows])
+    assert m5["by_decision"]["HOLD"]["hit_rate"] == round(sum(abs(c["excess_return"]) <= 0.01 for c in rows[:40]) / 40, 3)
+
+
+def test_signed_excess_flips_sell_and_ignores_hold():
+    rows = [{"decision": "SELL", "confidence": 80, "excess_return": -0.02, "horizon": 5} for _ in range(10)]
+    rows += [{"decision": "HOLD", "confidence": 50, "excess_return": 0.5, "horizon": 5}]
+    m = scoring.metrics(rows)
+    assert m["mean_signed_excess"] == 0.02 and m["directional_count"] == 10
 
 
 def test_prob_metrics_scores_hold_calls_and_skips_spy():
