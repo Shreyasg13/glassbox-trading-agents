@@ -689,6 +689,7 @@ export type WeeklyReportBody = {
 };
 
 export type WeeklyReportDetail = WeeklyReportSummary & { body: WeeklyReportBody };
+
 // ---- Quarantine review (admin, S3 T6) ----
 
 export type QuarantineStatus = "pending" | "approved" | "rejected" | "shadow";

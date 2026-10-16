@@ -129,6 +129,8 @@ export async function fetchWeeklyReportsPublic(): Promise<WeeklyReportSummary[]>
 
 export async function fetchWeeklyReportPublic(id: string): Promise<WeeklyReportDetail> {
   return apiFetch<WeeklyReportDetail>(`/api/public/weekly-reports/${encodeURIComponent(id)}`);
+}
+
 // ---- Quarantine review API (S3 T6) ----
 
 export async function fetchQuarantine(
