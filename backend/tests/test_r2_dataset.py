@@ -165,3 +165,17 @@ def test_untestable_types_are_skipped_and_recorded(tmp_path):
     assert not {row["error_type"] for row in instances} & set(kinds)
     dataset.write(instances, tmp_path, gate_commit="abc")
     assert json.loads((tmp_path / "MANIFEST.json").read_text())["untestable_types"] == list(kinds)
+
+
+def test_detection_is_relative_to_the_untouched_run(instances):
+    """A warning the clean run already had must not count as catching a planted error (or as a false alarm)."""
+    sources = {run["run_id"]: run for run in source_runs()}
+    controls = [row for row in instances if row["error_type"] == "C0"][:3]
+    baseline = run_gate.baselines(sources[row["source_run_id"]] for row in controls)
+    preexisting = {row["source_run_id"]: {("claim-x", "staleness", "warn")} for row in controls}
+    merged = {k: baseline[k] | preexisting[k] for k in baseline}
+    for row in run_gate.run(controls, merged):
+        assert not row["detected"] and row["new_flags"] == []
+    planted = [row for row in instances if row["error_type"] == "E1a"][:3]
+    base = run_gate.baselines(sources[row["source_run_id"]] for row in planted)
+    assert all(row["detected"] for row in run_gate.run(planted, base))

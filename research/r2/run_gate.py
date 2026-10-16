@@ -12,14 +12,28 @@ from app.verification import gate
 # reviewer: G3c
 
 
-def run(instances) -> list[dict]:
+def flags(checks) -> set:
+    """Non-pass results as (claim_id, check_type, status)."""
+    return {(c.claim_id, c.check_type, c.status) for c in checks if c.status != "pass"}
+
+
+def baselines(runs) -> dict:
+    """Gate flags of each untouched source run. Clean runs may already carry warns (production: all 199 did)."""
+    return {run["run_id"]: flags(gate.verify_run(run)) for run in runs}
+
+
+def run(instances, baseline=None) -> list[dict]:
+    """detected = the planted instance has a non-pass result its untouched source run did not have. Without a
+    baseline, any non-pass counts, which over-counts whenever clean runs carry warnings (first production run)."""
     results = []
     for instance in instances:
         checks = gate.verify_run(instance["inputs"])
         statuses = {check.status for check in checks}
         status = "fail" if "fail" in statuses else "warn" if "warn" in statuses else "pass"
+        new = flags(checks) - (baseline or {}).get(instance["source_run_id"], set())
         results.append({key: value for key, value in instance.items() if key != "inputs"} | {
-            "status": status, "detected": status != "pass", "primary_detected": status == "fail",
+            "status": status, "detected": bool(new), "primary_detected": any(f[2] == "fail" for f in new),
+            "new_flags": sorted(map(list, new)), "baseline_used": baseline is not None,
             "matches_expected": status == instance["expected_status"],
             "checks": [asdict(check) for check in checks],
         })
@@ -58,9 +72,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("instances", type=Path)
     parser.add_argument("out_dir", type=Path)
+    parser.add_argument("--runs", type=Path, help="exported source runs dir: detect only flags new vs each run")
     args = parser.parse_args()
     instances = [json.loads(line) for line in args.instances.read_text(encoding="utf-8").splitlines() if line.strip()]
-    results = run(instances)
+    from research.r2 import dataset
+    results = run(instances, baselines(dataset.load_runs(args.runs)) if args.runs else None)
     summary = summarize(results)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     (args.out_dir / "results.json").write_text(
