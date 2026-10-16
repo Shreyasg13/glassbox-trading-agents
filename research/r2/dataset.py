@@ -62,7 +62,11 @@ def build(runs, seed, allow_small=False) -> list[dict]:
             required = min(100, len(ordered))
         candidates = []
         for index in range(1 if kind == "C0" else 5):
+            if len(candidates) >= required:  # stop early: planted copies are large (memory)
+                break
             for source in ordered:
+                if len(candidates) >= required:
+                    break
                 identity = json.dumps([seed, source["run_id"], kind, index], separators=(",", ":"))
                 instance_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()
                 plant_seed = int(instance_id, 16)
