@@ -25,6 +25,7 @@ def archive(real_db):
         conn.execute(real_db.committee_runs_table.insert(), [
             {"id": run_id, "config": json.dumps({"id": run_id, "run_time": run_time})},
             {"id": "2026-01-03:TEST", "config": "{}"},
+            {"id": "2026-01-05:TEST", "config": json.dumps({"id": "2026-01-05:TEST", "created_at": run_time})},
             {"id": "2026-01-04:TEST", "config": json.dumps({"run_time": run_time})},
             {"id": "2027-01-02:TEST", "config": "{}"},
             {"id": "ask:ignored", "config": "{}"},
@@ -53,8 +54,11 @@ def test_export_loads_and_matches_production_gate_without_db_changes(archive, tm
     before = database.read_bytes()
     report = export_runs.export_runs(str(db.engine.url), "2027-01-01", tmp_path / "out")
     assert database.read_bytes() == before
-    assert report["exported"] == 1 and report["skipped"] == 2, report
-    assert report["reasons"]["2026-01-03:TEST"] == "missing original run_time"
+    assert report["exported"] == 1 and report["skipped"] == 3, report
+    assert report["run_time_source"] == {"run_time": 1, "created_at": 0}
+    assert report["reasons"]["2026-01-03:TEST"] == "missing run_time and created_at"
+    # production rows store created_at, not run_time: those fall back (this one has no claims, so it's skipped after)
+    assert report["reasons"]["2026-01-05:TEST"] == "missing claims"
     assert report["reasons"]["2026-01-04:TEST"] == "missing claims"
     loaded = dataset.load_runs(tmp_path / "out")
     assert len(loaded) == 1 and loaded.excluded_run_count == 0

@@ -1,7 +1,9 @@
 """Export archived gate inputs without network calls or database writes.
 
-Run with the backend on PYTHONPATH. Archives without the original run_time
-cannot reproduce point-in-time checks and are explicitly skipped.
+Run with the backend on PYTHONPATH. The gate's run_time is the run's stored `run_time` if present, else its
+`created_at` (what production's publish path passes to the gate; production rows store no run_time). created_at is
+written after the daily batch starts, so point-in-time checks can be slightly more lenient than in the daily job; the
+report counts which source each run used. Runs with neither are skipped.
 """
 from __future__ import annotations
 
@@ -98,7 +100,7 @@ def export_runs(db_url, cutoff, out_dir):
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     engine = readonly_engine(db_url)
-    report = {"exported": 0, "skipped": 0, "reasons": {}}
+    report = {"exported": 0, "skipped": 0, "reasons": {}, "run_time_source": {"run_time": 0, "created_at": 0}}
     try:
         with engine.connect() as conn:
             book = paper.PriceBook()
@@ -113,10 +115,11 @@ def export_runs(db_url, cutoff, out_dir):
                     if date.fromisoformat(run_date) >= cutoff:
                         continue
                     doc = json.loads(row.config)
-                    if not doc.get("run_time"):
-                        raise ValueError("missing original run_time")
-                    datetime.fromisoformat(doc["run_time"].replace("Z", "+00:00"))
-                    inputs = rebuild_inputs(conn, row.id, doc["run_time"], book)
+                    source = "run_time" if doc.get("run_time") else "created_at" if doc.get("created_at") else None
+                    if source is None:
+                        raise ValueError("missing run_time and created_at")
+                    datetime.fromisoformat(doc[source].replace("Z", "+00:00"))
+                    inputs = rebuild_inputs(conn, row.id, doc[source], book)
                     if gate_status(inputs) == "fail":
                         raise ValueError("unmodified gate failed")
                     # Colons are illegal in Windows filenames; run_id remains intact in JSON.
@@ -127,6 +130,7 @@ def export_runs(db_url, cutoff, out_dir):
                         json.dumps(dict(inputs, run_id=row.id, symbol=symbol), sort_keys=True, indent=2) + "\n",
                         encoding="utf-8")
                     report["exported"] += 1
+                    report["run_time_source"][source] += 1
                 except (ValueError, KeyError, TypeError) as exc:
                     report["skipped"] += 1
                     report["reasons"][row.id] = str(exc)
