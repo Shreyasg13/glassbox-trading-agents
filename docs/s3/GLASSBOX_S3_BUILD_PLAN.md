@@ -320,6 +320,7 @@ ADMIN   GET  /admin/flags      POST /admin/flags/{key}
 
 ## 7. Status board
 
+- [x] G3c R2 independent controls, pooled catch rates and read-only archived-run exporter (synthetic validation)
 - [x] G3b Offline R2 data-set builder, gate detector and freeze manifest (synthetic validation)
 - [x] T0 Repo discovery
 - [x] T1 Feature flags and kill switches
@@ -375,6 +376,7 @@ ADMIN   GET  /admin/flags      POST /admin/flags/{key}
 | Date | Task | Summary | PR/commit |
 |---|---|---|---|
 | 2026-10-16 | G3b | Offline deterministic R2 builder, capped sampling, exclusion counts, freeze hashes, gate results CLI and synthetic tests; production gate unchanged | branch `research/r2-g3b` |
+| 2026-10-16 | G3c | One C0 per run, independent-input bounds, pooled rates and read-only exporter reusing production assembly; skips archives missing original run_time | branch `research/r2-g3c` |
 | 2026-09-26 | T0 | Repo map filled, current flow traced, output channels listed, surprises recorded, real committee output saved, execution plan written | PR `s3/T0-discovery` |
 | 2026-09-26 | T1 | `feature_flags` table (Alembic 0001), `flags.flag()`, kill switches on email, reports, speech (default off), assistant, user reports and the daily job; admin Flags tab and API; `require_role`; every-route-declares-a-role test with a shrinking allowlist of 26 legacy public routes; Alembic adopted for S3 tables only | PR `s3/T1-flags` |
 | 2026-09-26 | T2 | `app/scripts/baseline_discrepancy.py` audits the 77 stored committee runs with no new model calls: context fidelity 1.1% differ (0.2% beyond rounding), headline 4.0% (all 1 point), AI-prose unsupported numbers 2.3% overall but 0.2% since the first day. Report `docs/s3/baseline.md`, per-number data `docs/s3/baseline.csv`. 22 tests incl. a check against the real context builder | PR `s3/T2-baseline` |

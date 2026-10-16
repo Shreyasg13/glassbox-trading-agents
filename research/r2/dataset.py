@@ -38,6 +38,8 @@ def load_runs(directory) -> list[dict]:
     """Read exported JSON runs; exclude and count any with an existing fail."""
     runs = Runs()
     for path in sorted(Path(directory).glob("*.json")):
+        if path.name == "export_report.json":
+            continue
         run = json.loads(path.read_text(encoding="utf-8"))
         if inject.gate_status(run) == "fail":
             runs.excluded_run_count += 1
@@ -46,19 +48,28 @@ def load_runs(directory) -> list[dict]:
     return runs
 
 
-def build(runs, seed, allow_small=False) -> list[dict]:
-    """Plant the fixed 1,000-instance design; allow_small relaxes diversity only."""
+def build(runs, seed, allow_small=False, untestable=()) -> list[dict]:
+    """Plant the design with one untouched control per run; relax diversity only."""
     ordered = sorted(runs, key=lambda run: str(run["run_id"]))
     if len({str(run["run_id"]) for run in ordered}) != len(ordered):
         raise ValueError("Duplicate run_id in source runs")
     rng = random.Random(seed)
     rng.shuffle(ordered)
     instances = Instances(seed, getattr(runs, "excluded_run_count", 0))
+    instances.untestable = sorted(untestable)  # types the data can't carry; recorded, never silently dropped
     for kind in inject.EXPECTED:
+        if kind in untestable:
+            continue
         required = 100 if kind.startswith("C") else 50
+        if kind == "C0":
+            required = min(100, len(ordered))
         candidates = []
-        for index in range(5):
+        for index in range(1 if kind == "C0" else 5):
+            if len(candidates) >= required:  # stop early: planted copies are large (memory)
+                break
             for source in ordered:
+                if len(candidates) >= required:
+                    break
                 identity = json.dumps([seed, source["run_id"], kind, index], separators=(",", ":"))
                 instance_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()
                 plant_seed = int(instance_id, 16)
@@ -102,7 +113,10 @@ def write(instances, out_dir, *, gate_commit, seed=None, excluded_run_count=None
                    for row in sorted(instances, key=lambda row: row["instance_id"])).encode("utf-8")
     (out / "instances.jsonl").write_bytes(data)
     manifest = {"seed": seed, "gate_commit": gate_commit, "excluded_run_count": excluded,
+                "c0_count": sum(row["error_type"] == "C0" for row in instances),
+                "c0_distinct_runs": len({row["source_run_id"] for row in instances if row["error_type"] == "C0"}),
                 "counts_per_type": dict(sorted(Counter(row["error_type"] for row in instances).items())),
+                "untestable_types": getattr(instances, "untestable", []),
                 "diversity": diversity_report(instances),
                 "sha256": {"instances.jsonl": hashlib.sha256(data).hexdigest()}}
     (out / "MANIFEST.json").write_bytes((json.dumps(manifest, sort_keys=True, indent=2) + "\n").encode("utf-8"))

@@ -29,14 +29,17 @@ def test_deterministic_bytes_manifest_and_cap(tmp_path, instances):
     for name in ("instances.jsonl", "MANIFEST.json"):
         assert (tmp_path / "a" / name).read_bytes() == (tmp_path / "b" / name).read_bytes()
     counts = Counter(row["error_type"] for row in instances)
-    assert counts == {kind: 100 if kind.startswith("C") else 50 for kind in inject.EXPECTED}
+    assert counts == {kind: 20 if kind == "C0" else 100 if kind == "C1" else 50 for kind in inject.EXPECTED}
     assert max(Counter((row["source_run_id"], row["error_type"]) for row in instances).values()) == 5
-    assert len({row["instance_id"] for row in instances}) == 1000
+    assert len({row["instance_id"] for row in instances}) == 920
     assert dataset.diversity_report(instances) == {"runs": 20, "symbols": 10, "met": True}
     assert dataset.build(source_runs(), 43) != instances
     manifest = json.loads((tmp_path / "a" / "MANIFEST.json").read_text())
     assert manifest["seed"] == 42 and manifest["gate_commit"] == "frozen"
     assert manifest["counts_per_type"] == counts
+    assert manifest["c0_count"] == manifest["c0_distinct_runs"] == 20
+    controls = [row for row in instances if row["error_type"] == "C0"]
+    assert len({row["source_run_id"] for row in controls}) == len(controls)
     for name, digest in manifest["sha256"].items():
         assert hashlib.sha256((tmp_path / "a" / name).read_bytes()).hexdigest() == digest
     rows = [json.loads(line) for line in (tmp_path / "a" / "instances.jsonl").read_text().splitlines()]
@@ -80,7 +83,7 @@ def test_load_excludes_failing_but_retains_warn_and_records_count(tmp_path):
 
 def test_every_planted_instance_runs_real_gate_and_preserves_labels(instances):
     results = run_gate.run(instances)
-    assert len(results) == 1000
+    assert len(results) == 920
     for instance, result in zip(instances, results):
         assert result["status"] == result["expected_status"] == inject.EXPECTED[result["error_type"]]
         assert result["matches_expected"]
@@ -94,7 +97,8 @@ def test_every_planted_instance_runs_real_gate_and_preserves_labels(instances):
 
 def test_summarize_hand_computed_rates_and_bounds():
     def rows(kind, n, caught):
-        return [{"error_type": kind, "detected": i < caught} for i in range(n)]
+        return [{"error_type": kind, "detected": i < caught, "source_run_id": f"r{i}",
+                 "planted": str(i)} for i in range(n)]
     summary = run_gate.summarize(rows("E1a", 50, 50) + rows("E2", 50, 10)
                                  + rows("C0", 100, 0) + rows("C1", 100, 2))
     # 50/50 caught, 0 misses: rule-of-three = 3/50 = .06.
@@ -110,6 +114,38 @@ def test_summarize_hand_computed_rates_and_bounds():
     assert run_gate.summarize([]) == {}
 
 
+def test_bounds_deduplicate_controls_and_planted_values():
+    rows = [{"error_type": kind, "source_run_id": f"r{i}", "planted": value,
+             "detected": kind.startswith("E")}
+            for kind in ("C0", "C1", "E1a") for i in range(10) for value in (1, 1, 2)]
+    summary = run_gate.summarize(rows)
+    for kind in ("C0", "C1"):
+        assert summary[kind]["count"] == 30
+        assert summary[kind]["n_independent"] == 10
+        # 3 / 10 independent source runs = .3, despite 30 control copies.
+        assert summary[kind]["false_alarm_rate_upper_95"] == pytest.approx(.3)
+    assert summary["E1a"]["n_independent"] == 20
+    # 10 runs x 2 planted values: 3 / 20 = .15.
+    assert summary["E1a"]["miss_rate_upper_95"] == pytest.approx(.15)
+
+
+def test_pooled_rates_weight_instances_and_exclude_controls():
+    rows = [{"error_type": kind, "source_run_id": str(i), "planted": i,
+             "detected": i < caught}
+            for kind, n, caught in (("E1a", 3, 3), ("E5", 1, 0), ("E2", 2, 1),
+                                    ("E7b", 1, 0), ("E8c", 1, 0), ("C0", 10, 10))
+            for i in range(n)]
+    pooled = run_gate.summarize(rows)["pooled"]
+    # Catchable: 3/4 = .75; blind spots: 1/(2+1+1) = .25.
+    assert pooled["catchable"] == {"count": 4, "detected": 3, "catch_rate": .75}
+    assert pooled["blind_spots"] == {"count": 4, "detected": 1, "catch_rate": .25}
+
+
+def test_c0_cap_with_more_than_one_hundred_runs():
+    controls = [row for row in dataset.build(source_runs(101), 42) if row["error_type"] == "C0"]
+    assert len(controls) == len({row["source_run_id"] for row in controls}) == 100
+
+
 def test_cli_writes_json_and_markdown(tmp_path, instances, monkeypatch):
     dataset.write(instances[:2], tmp_path, gate_commit="frozen", seed=42)
     monkeypatch.setattr(sys, "argv", ["run_gate", str(tmp_path / "instances.jsonl"), str(tmp_path / "out")])
@@ -118,3 +154,28 @@ def test_cli_writes_json_and_markdown(tmp_path, instances, monkeypatch):
     assert len(report["results"]) == 2
     assert report["summary"]["E1a"]["catch_rate"] == 1
     assert "| E1a | 2 | 2 | 100.00% |" in (tmp_path / "out" / "results.md").read_text(encoding="utf-8")
+    assert "| Pooled catchable | 2 | 2 | 100.00% |" in (tmp_path / "out" / "results.md").read_text(encoding="utf-8")
+    assert "| Pooled blind_spots | 0 | 0 | N/A |" in (tmp_path / "out" / "results.md").read_text(encoding="utf-8")
+
+
+def test_untestable_types_are_skipped_and_recorded(tmp_path):
+    """Types the data can't carry (e.g. no narratives in production) are left out and named in the manifest."""
+    kinds = ("E8a", "E8b", "E8c")
+    instances = dataset.build(source_runs(), 42, untestable=kinds)
+    assert not {row["error_type"] for row in instances} & set(kinds)
+    dataset.write(instances, tmp_path, gate_commit="abc")
+    assert json.loads((tmp_path / "MANIFEST.json").read_text())["untestable_types"] == list(kinds)
+
+
+def test_detection_is_relative_to_the_untouched_run(instances):
+    """A warning the clean run already had must not count as catching a planted error (or as a false alarm)."""
+    sources = {run["run_id"]: run for run in source_runs()}
+    controls = [row for row in instances if row["error_type"] == "C0"][:3]
+    baseline = run_gate.baselines(sources[row["source_run_id"]] for row in controls)
+    preexisting = {row["source_run_id"]: {("claim-x", "staleness", "warn")} for row in controls}
+    merged = {k: baseline[k] | preexisting[k] for k in baseline}
+    for row in run_gate.run(controls, merged):
+        assert not row["detected"] and row["new_flags"] == []
+    planted = [row for row in instances if row["error_type"] == "E1a"][:3]
+    base = run_gate.baselines(sources[row["source_run_id"]] for row in planted)
+    assert all(row["detected"] for row in run_gate.run(planted, base))
