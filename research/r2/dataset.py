@@ -38,6 +38,8 @@ def load_runs(directory) -> list[dict]:
     """Read exported JSON runs; exclude and count any with an existing fail."""
     runs = Runs()
     for path in sorted(Path(directory).glob("*.json")):
+        if path.name == "export_report.json":
+            continue
         run = json.loads(path.read_text(encoding="utf-8"))
         if inject.gate_status(run) == "fail":
             runs.excluded_run_count += 1
@@ -47,7 +49,7 @@ def load_runs(directory) -> list[dict]:
 
 
 def build(runs, seed, allow_small=False) -> list[dict]:
-    """Plant the fixed 1,000-instance design; allow_small relaxes diversity only."""
+    """Plant the design with one untouched control per run; relax diversity only."""
     ordered = sorted(runs, key=lambda run: str(run["run_id"]))
     if len({str(run["run_id"]) for run in ordered}) != len(ordered):
         raise ValueError("Duplicate run_id in source runs")
@@ -56,8 +58,10 @@ def build(runs, seed, allow_small=False) -> list[dict]:
     instances = Instances(seed, getattr(runs, "excluded_run_count", 0))
     for kind in inject.EXPECTED:
         required = 100 if kind.startswith("C") else 50
+        if kind == "C0":
+            required = min(100, len(ordered))
         candidates = []
-        for index in range(5):
+        for index in range(1 if kind == "C0" else 5):
             for source in ordered:
                 identity = json.dumps([seed, source["run_id"], kind, index], separators=(",", ":"))
                 instance_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()
@@ -102,6 +106,8 @@ def write(instances, out_dir, *, gate_commit, seed=None, excluded_run_count=None
                    for row in sorted(instances, key=lambda row: row["instance_id"])).encode("utf-8")
     (out / "instances.jsonl").write_bytes(data)
     manifest = {"seed": seed, "gate_commit": gate_commit, "excluded_run_count": excluded,
+                "c0_count": sum(row["error_type"] == "C0" for row in instances),
+                "c0_distinct_runs": len({row["source_run_id"] for row in instances if row["error_type"] == "C0"}),
                 "counts_per_type": dict(sorted(Counter(row["error_type"] for row in instances).items())),
                 "diversity": diversity_report(instances),
                 "sha256": {"instances.jsonl": hashlib.sha256(data).hexdigest()}}
