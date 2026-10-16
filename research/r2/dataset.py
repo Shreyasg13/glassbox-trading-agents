@@ -48,7 +48,7 @@ def load_runs(directory) -> list[dict]:
     return runs
 
 
-def build(runs, seed, allow_small=False) -> list[dict]:
+def build(runs, seed, allow_small=False, untestable=()) -> list[dict]:
     """Plant the design with one untouched control per run; relax diversity only."""
     ordered = sorted(runs, key=lambda run: str(run["run_id"]))
     if len({str(run["run_id"]) for run in ordered}) != len(ordered):
@@ -56,7 +56,10 @@ def build(runs, seed, allow_small=False) -> list[dict]:
     rng = random.Random(seed)
     rng.shuffle(ordered)
     instances = Instances(seed, getattr(runs, "excluded_run_count", 0))
+    instances.untestable = sorted(untestable)  # types the data can't carry; recorded, never silently dropped
     for kind in inject.EXPECTED:
+        if kind in untestable:
+            continue
         required = 100 if kind.startswith("C") else 50
         if kind == "C0":
             required = min(100, len(ordered))
@@ -113,6 +116,7 @@ def write(instances, out_dir, *, gate_commit, seed=None, excluded_run_count=None
                 "c0_count": sum(row["error_type"] == "C0" for row in instances),
                 "c0_distinct_runs": len({row["source_run_id"] for row in instances if row["error_type"] == "C0"}),
                 "counts_per_type": dict(sorted(Counter(row["error_type"] for row in instances).items())),
+                "untestable_types": getattr(instances, "untestable", []),
                 "diversity": diversity_report(instances),
                 "sha256": {"instances.jsonl": hashlib.sha256(data).hexdigest()}}
     (out / "MANIFEST.json").write_bytes((json.dumps(manifest, sort_keys=True, indent=2) + "\n").encode("utf-8"))

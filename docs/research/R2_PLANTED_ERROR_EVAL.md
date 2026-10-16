@@ -81,5 +81,6 @@ Each instance stores: `instance_id`, `source_run_id`, `error_type` (or `C0`/`C1`
 | Date | Change | Reason |
 |---|---|---|
 | 2026-10-14 | Drafted | G2 |
+| 2026-10-16 | E8a, E8b, E8c (narrative errors) not testable on production data: narrative generation is off, all 199 clean runs' narrative rows are `skipped`. Run without them; recorded as `untestable_types` in the manifest; the blind-spot pool is then E2 + E7b only. run_time = each run's `created_at` (production stores no run_time; same as the publish path) | First read-only production export (287 runs: 199 clean, 74 without claims, 14 already failing the unmodified gate) |
 | 2026-10-16 | C0: one per distinct run (n = min(100, eligible runs)); bounds on independent inputs | reason: deterministic gate makes repeated untouched copies one observation (G3b review) |
 | 2026-10-14 | Injector `research/r2/inject.py` added; `backend/tests/test_r2_inject.py` plants every type (12 seeds each) into a synthetic clean run and confirms the gate status in §3 for all 18 rows | G3 part 1. Left for G3: export clean runs from production, plant the §7 sizes, write the SHA-256 manifest |

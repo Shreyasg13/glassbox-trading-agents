@@ -156,3 +156,12 @@ def test_cli_writes_json_and_markdown(tmp_path, instances, monkeypatch):
     assert "| E1a | 2 | 2 | 100.00% |" in (tmp_path / "out" / "results.md").read_text(encoding="utf-8")
     assert "| Pooled catchable | 2 | 2 | 100.00% |" in (tmp_path / "out" / "results.md").read_text(encoding="utf-8")
     assert "| Pooled blind_spots | 0 | 0 | N/A |" in (tmp_path / "out" / "results.md").read_text(encoding="utf-8")
+
+
+def test_untestable_types_are_skipped_and_recorded(tmp_path):
+    """Types the data can't carry (e.g. no narratives in production) are left out and named in the manifest."""
+    kinds = ("E8a", "E8b", "E8c")
+    instances = dataset.build(source_runs(), 42, untestable=kinds)
+    assert not {row["error_type"] for row in instances} & set(kinds)
+    dataset.write(instances, tmp_path, gate_commit="abc")
+    assert json.loads((tmp_path / "MANIFEST.json").read_text())["untestable_types"] == list(kinds)
