@@ -1,6 +1,6 @@
 # R2 design: does the verification gate catch planted wrong numbers?
 
-**Status:** design (G2) done; G3 pipeline built and tested on synthetic runs (`research/r2/r2.py`). Waiting on the production export (`research/r2/fetch_runs.sh`, owner); no detector has run on real data yet. GlassBox is feature-frozen: R2 adds an offline evaluation, not product code.
+**Status:** design (G2, durable-agent-runtime #32). The data set is built and frozen in G3 (#33); nothing here has been run yet. GlassBox is feature-frozen: R2 adds an offline evaluation, not product code.
 
 GlassBox is a non-commercial research preview. Nothing here is investment advice.
 
@@ -82,4 +82,3 @@ Each instance stores: `instance_id`, `source_run_id`, `error_type` (or `C0`/`C1`
 |---|---|---|
 | 2026-10-14 | Drafted | G2 |
 | 2026-10-14 | Injector `research/r2/inject.py` added; `backend/tests/test_r2_inject.py` plants every type (12 seeds each) into a synthetic clean run and confirms the gate status in §3 for all 18 rows | G3 part 1. Left for G3: export clean runs from production, plant the §7 sizes, write the SHA-256 manifest |
-| 2026-10-16 | G3 part 2: `export_runs.py` (read-only export, mirrors `runner.run_gate`; also exports the stored gate results), `fetch_runs.sh` (owner runs it), `r2.py build/gate/review/report`. Choices made before any real data: controls are not de-duplicated, error instances are (the same planted copy counts once); an unparseable LLM answer counts as flagged and is reported; `run_time` = the committee run's `created_at`, as in `publish.py`. Production data stays in git-ignored `research/r2/data/`, pinned by `manifest.json` | Run on real data needs the export |
