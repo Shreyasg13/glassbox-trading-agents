@@ -6,6 +6,9 @@ into a dated release with a git tag.
 
 ## [Unreleased]
 
+### Fixed
+- **Offline R2 stale-data plants (G3d)**: E5 now targets only claims that pass the gate's staleness check on the untouched run, so each plant adds a new staleness flag. Ineligible runs are skipped; insufficient eligible runs still raise instead of reducing the design count. No product behavior or wording changes.
+
 ### Added
 - **Offline R2 research corrections (G3c)**: one untouched C0 per source run (up to 100), independent-input rule-of-three bounds, pooled catchable/blind-spot rates in research reports, and a read-only SQLite/PostgreSQL run exporter reusing production input assembly. No product behavior or wording changes. Archives without the original run timestamp are reported and skipped; Windows export filenames replace the run ID colon with an underscore.
 - **Offline R2 research harness (G3b)**: deterministic 1,000-instance planted-error data-set builder, clean-run exclusion counts, SHA-256 freeze manifest, and gate detector CLI producing JSON and Markdown catch/false-alarm tables. Synthetic tests only; no product behavior or wording changes. LLM reviewer deferred to G3c.

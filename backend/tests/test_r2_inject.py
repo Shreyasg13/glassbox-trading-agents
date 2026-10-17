@@ -57,3 +57,20 @@ def test_a_run_without_a_narrative_is_not_applicable_for_narrative_errors():
     run["narrative_row"] = None
     with pytest.raises(inject.NotApplicable):
         inject.plant(run, "E8a", 0)
+
+
+def test_e5_targets_only_fresh_claims():
+    run = clean_run()
+    meta, payload = run["snapshots_by_claim_id"]["nm"]
+    run["snapshots_by_claim_id"]["nm"] = (dict(meta, as_of="2020-01-01"), payload)
+    for seed in range(100):
+        _, label = inject.plant(run, "E5", seed)
+        assert label["target_claim_id"] == "eps"
+    assert inject.gate.check_staleness(run["claims"][1], meta, run["run_date"]).status == "pass"
+
+
+def test_e5_without_fresh_claims_cannot_plant():
+    run = clean_run()
+    run["snapshots_by_claim_id"]["nm"][0]["as_of"] = "2020-01-01"
+    with pytest.raises(inject.NotApplicable):
+        inject.plant(run, "E5", 0)

@@ -54,6 +54,27 @@ def test_type_shortage_names_type_and_possible_count():
         dataset.build(runs, 1)
 
 
+def test_every_e5_adds_a_staleness_flag_and_fills_design_count():
+    runs = source_runs()
+    for row in runs:
+        meta, payload = row["snapshots_by_claim_id"]["nm"]
+        row["snapshots_by_claim_id"]["nm"] = (dict(meta, as_of="2020-01-01"), payload)
+    baseline = run_gate.baselines(runs)
+    planted = [row for row in dataset.build(runs, 42) if row["error_type"] == "E5"]
+    assert len(planted) == 50
+    for row in planted:
+        new = run_gate.flags(inject.gate.verify_run(row["inputs"])) - baseline[row["source_run_id"]]
+        assert new == {("eps", "staleness", "warn")}
+
+
+def test_e5_shortage_excludes_already_stale_runs():
+    runs = source_runs()
+    for row in runs[9:]:
+        row["snapshots_by_claim_id"]["nm"][0]["as_of"] = "2020-01-01"
+    with pytest.raises(ValueError, match="E5: required 50 instances, only 45 possible"):
+        dataset.build(runs, 42)
+
+
 def test_diversity_enforced_and_small_override():
     runs = source_runs()
     for row in runs:
