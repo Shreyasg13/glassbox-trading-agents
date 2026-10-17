@@ -200,3 +200,18 @@ def test_detection_is_relative_to_the_untouched_run(instances):
     planted = [row for row in instances if row["error_type"] == "E1a"][:3]
     base = run_gate.baselines(sources[row["source_run_id"]] for row in planted)
     assert all(row["detected"] for row in run_gate.run(planted, base))
+
+
+def test_run_gate_sorts_mixed_none_flags_and_requires_baseline_coverage(instances):
+    picked = [i for i in instances if i["error_type"] == "E5"][:1]
+    out = run_gate.run(picked, baseline=None)  # no baseline: every non-pass flag is "new"
+    assert out and isinstance(out[0]["new_flags"], list)
+    with pytest.raises(ValueError, match="no baseline"):
+        run_gate.run(picked, baseline={})
+
+
+def test_new_flags_sort_with_none_claim_ids(instances, monkeypatch):
+    mixed = {(None, "narrative", "warn"), ("eps", "staleness", "warn")}
+    monkeypatch.setattr(run_gate, "flags", lambda checks: mixed)
+    out = run_gate.run([i for i in instances if i["error_type"] == "C0"][:1])
+    assert out[0]["new_flags"][0][0] is None
