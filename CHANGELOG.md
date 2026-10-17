@@ -7,6 +7,7 @@ into a dated release with a git tag.
 ## [Unreleased]
 
 ### Added
+- **Offline R2 research harness (G3b)**: deterministic 1,000-instance planted-error data-set builder, clean-run exclusion counts, SHA-256 freeze manifest, and gate detector CLI producing JSON and Markdown catch/false-alarm tables. Synthetic tests only; no product behavior or wording changes. LLM reviewer deferred to G3c.
 - **Single publish exit** (`app/publish.py`) (T5). Every piece of system-generated text that reaches a user goes through
   `publish()` (or `publish_simple()` for non-committee outputs). It runs the A6 gate (for committee outputs) and the A7
   compliance filter, records the verdict, and either allows or holds the text depending on the `publish.enforce` flag.
