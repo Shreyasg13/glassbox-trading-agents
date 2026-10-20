@@ -37,7 +37,7 @@ export function ConversionCTA() {
               Already verifying? Sign in
             </a>
           </div>
-          <p className="mono text-[11px] text-t4">No card required · research tool, not investment advice</p>
+          <p className="mono text-[11px] text-t4">Free, non-commercial research preview · not investment advice</p>
         </div>
       </Reveal>
     </section>
