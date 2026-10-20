@@ -100,3 +100,36 @@ def test_truncated_summary_ends_on_a_word():
     out = casebook._tidy(cut)
     assert out.endswith("word…") and "signi" not in out
     assert casebook._tidy("short and complete.") == "short and complete."
+
+
+def _agent(name, lean, summary, conf=0.6):
+    return {"agent": name, "type": "llm", "ok": True, "provider": "groq", "lean": lean, "summary": summary, "confidence": conf}
+
+
+def test_feed_builds_typed_cards_from_recent_days(real_db, monkeypatch):
+    monkeypatch.setattr(casebook, "_book", lambda: None)
+    casebook._feed_cache.update({"value": None, "key": None})
+    debated = _run("2026-10-15", "NVDA", decision="HOLD", engine="BUY")
+    debated["agents"] = [_agent("Value Investor", "BUY", "Cash flow is strong."), _agent("Risk Manager", "SELL", "Volatility is high."),
+                         _agent("Global Macro", "HOLD", "Rates are uncertain.")]
+    calm = _run("2026-10-15", "AAPL", decision="HOLD", engine="HOLD")
+    calm["agents"] = [_agent("Value Investor", "HOLD", "Fairly valued.", 0.9)]
+    _seed(_run("2026-10-14", "MSFT"), debated, calm)
+    with TestClient(app) as client:
+        r = client.get("/api/public/casebook/feed")
+    assert r.status_code == 200
+    body = r.json()
+    cards = {c["type"]: c for c in body["cards"]}
+    assert body["latest"] == "2026-10-15"
+    assert cards["day"]["headline"] == "3 AI analysts looked at 2 stocks. On every single one, their verdict was: wait."
+    assert cards["debate"]["symbol"] == "NVDA" and cards["debate"]["split"] == {"BUY": 1, "SELL": 1, "HOLD": 1}
+    assert cards["overrule"]["symbol"] == "NVDA" and cards["overrule"]["engine"] == "BUY"
+    assert cards["quote"]["symbol"] == "AAPL"  # never repeats a stock already featured
+    assert cards["scoreboard"]["days"] == 2 and cards["scoreboard"]["calls"] == 3
+    assert "groq" not in r.text
+
+
+def test_feed_empty_without_runs(real_db):
+    casebook._feed_cache.update({"value": None, "key": None})
+    with TestClient(app) as client:
+        assert client.get("/api/public/casebook/feed").json()["cards"] == []

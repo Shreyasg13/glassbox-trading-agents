@@ -130,3 +130,114 @@ def post(d: str) -> Optional[Dict[str, Any]]:
     book = _book()
     return {"date": d, "cases": [_case(r, book) for r in sorted(runs, key=lambda r: r["symbol"])],
             "horizon": HORIZON, "disclaimer": disclaimer.text()}
+
+
+# ------------------------------------------------------------------ feed --
+# The homepage/blog feed: a handful of typed cards built from the most recent days, so the page
+# changes every trading day on its own. Every card is derived from stored committee runs; nothing
+# is generated here, and quotes reuse the compliance-filtered summaries above.
+
+FEED_DAYS = 10
+_FEED_TTL_S = 600.0
+_feed_cache: Dict[str, Any] = {"at": 0.0, "key": None, "value": None}
+_LEANS = ("BUY", "SELL", "HOLD")
+
+
+def _day_headline(cases: List[Dict[str, Any]]) -> str:
+    n = len(cases)
+    ai = len({a["agent"] for c in cases for a in c["analysts"] if a["type"] == "llm"})
+    quant = len({a["agent"] for c in cases for a in c["analysts"] if a["type"] != "llm"})
+    who = f"{ai} AI analysts" + (f" and {quant} quant models" if quant else "")
+    count = {lean: sum(1 for c in cases if c["decision"] == lean) for lean in _LEANS}
+    if count["HOLD"] == n:
+        return f"{who} looked at {n} stocks. On every single one, their verdict was: wait."
+    moves = " and ".join(f"{count[k]} {k}" for k in ("BUY", "SELL") if count[k])
+    return f"{who} looked at {n} stocks. They made {moves}, and said wait on the other {count['HOLD']}."
+
+
+def _split(c: Dict[str, Any]) -> Dict[str, int]:
+    return {lean: sum(1 for a in c["analysts"] if a["lean"] == lean and a["type"] == "llm") for lean in _LEANS}
+
+
+def _quote(c: Dict[str, Any], lean: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """The fullest compliant LLM reasoning on this case (optionally from one side)."""
+    pool = [a for a in c["analysts"] if a["type"] == "llm" and a["summary"] and (lean is None or a["lean"] == lean)]
+    if not pool:
+        return None
+    a = max(pool, key=lambda a: (a.get("confidence") or 0, len(a["summary"])))
+    return {"agent": a["agent"], "lean": a["lean"], "text": a["summary"]}
+
+
+def _scoreboard(days: Dict[str, List[Dict[str, Any]]], book: Optional[Any]) -> Dict[str, Any]:
+    calls = [r for runs in days.values() for r in runs]
+    directional = right = 0
+    for r in calls:
+        call = r.get("action") or r.get("decision")
+        if call in ("BUY", "SELL"):
+            o = _outcome(book, r["symbol"], r["date"], call)
+            if o and o["right"] is not None:
+                directional += 1
+                right += bool(o["right"])
+    holds = sum(1 for r in calls if r.get("decision") == "HOLD")
+    return {"type": "scoreboard", "days": len(days), "calls": len(calls), "hold_share": round(holds / len(calls), 3) if calls else None,
+            "scored": directional, "right": right, "overrule_days": sum(1 for runs in days.values() if any(r.get("agrees_with_engine") is False for r in runs))}
+
+
+def _build_feed() -> Dict[str, Any]:
+    days = _by_date()
+    if not days:
+        return {"updated": None, "cards": [], "disclaimer": disclaimer.text()}
+    book = _book()
+    recent = sorted(days, reverse=True)[:FEED_DAYS]
+    full = {d: [_case(r, book) for r in sorted(days[d], key=lambda r: r["symbol"])] for d in recent}
+    latest = recent[0]
+    cards: List[Dict[str, Any]] = []
+
+    today = full[latest]
+    cards.append({"type": "day", "date": latest, "href": f"/blog/{latest}", "headline": _day_headline(today), "stocks": len(today),
+                  "decisions": {c["symbol"]: c["decision"] for c in today}, "overruled": [c["symbol"] for c in today if c["agrees_with_engine"] is False],
+                  "opinions": {lean: sum(1 for c in today for a in c["analysts"] if a["type"] == "llm" and a["lean"] == lean) for lean in _LEANS}})
+
+    # Most debated stock of the recent days: the case whose LLM analysts split across the most sides, most evenly.
+    debates = [(d, c) for d in recent for c in full[d] if sum(1 for v in _split(c).values() if v) >= 2]
+    if debates:
+        d, c = max(debates, key=lambda dc: (sum(1 for v in _split(dc[1]).values() if v), -max(_split(dc[1]).values()), dc[0]))
+        sides = sorted((lean for lean, v in _split(c).items() if v), key=lambda lean: -_split(c)[lean])[:2]
+        cards.append({"type": "debate", "date": d, "symbol": c["symbol"], "href": f"/blog/{d}#{c['symbol']}", "split": _split(c),
+                      "decision": c["decision"], "quotes": [q for q in (_quote(c, s) for s in sides) if q]})
+
+    over = next(((d, c) for d in recent for c in full[d] if c["agrees_with_engine"] is False), None)
+    if over:
+        d, c = over
+        cards.append({"type": "overrule", "date": d, "symbol": c["symbol"], "href": f"/blog/{d}#{c['symbol']}", "engine": c["engine_signal"],
+                      "decision": c["decision"], "outcome": c["outcome"], "quote": _quote(c, c["decision"])})
+
+    # The latest day whose outcome is in: its best and worst stock versus SPY, and how the calls fared.
+    scored_day = next((d for d in recent if any(c["outcome"] and c["outcome"]["excess"] is not None for c in full[d])), None)
+    if scored_day:
+        rows = [c for c in full[scored_day] if c["outcome"] and c["outcome"]["excess"] is not None]
+        best, worst = max(rows, key=lambda c: c["outcome"]["excess"]), min(rows, key=lambda c: c["outcome"]["excess"])
+        judged = [c for c in rows if c["outcome"]["right"] is not None]
+        cards.append({"type": "verdict", "date": scored_day, "href": f"/blog/{scored_day}", "horizon": HORIZON,
+                      "best": {"symbol": best["symbol"], "decision": best["decision"], "excess": best["outcome"]["excess"]},
+                      "worst": {"symbol": worst["symbol"], "decision": worst["decision"], "excess": worst["outcome"]["excess"]},
+                      "judged": len(judged), "right": sum(1 for c in judged if c["outcome"]["right"])})
+
+    used = {card.get("symbol") for card in cards}
+    spot = next(((latest, c, q) for c in today if c["symbol"] not in used and (q := _quote(c))), None)
+    if spot:
+        d, c, q = spot
+        cards.append({"type": "quote", "date": d, "symbol": c["symbol"], "href": f"/blog/{d}#{c['symbol']}", "quote": q, "decision": c["decision"]})
+
+    cards.append(_scoreboard(days, book) | {"href": "/blog"})
+    updated = max((r.get("created_at") or "") for r in days[latest]) or None
+    return {"updated": updated, "latest": latest, "cards": cards, "disclaimer": disclaimer.text()}
+
+
+def feed() -> Dict[str, Any]:
+    """Cached per worker for ten minutes, and rebuilt at once when a new trading day lands."""
+    days = db.list_all_committee_runs()
+    key = (len(days), max((r.get("date") or "" for r in days), default=""))
+    if _feed_cache["value"] is None or _feed_cache["key"] != key or time.monotonic() - _feed_cache["at"] > _FEED_TTL_S:
+        _feed_cache.update({"value": _build_feed(), "key": key, "at": time.monotonic()})
+    return _feed_cache["value"]

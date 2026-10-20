@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ApiError, apiFetch } from "@/lib/api";
 import type { CasebookIndex } from "@/lib/types";
 import { LEAN_FILL, LEAN_GLYPH } from "@/components/blog/visuals";
+import { Feed } from "@/components/blog/Feed";
 
 /** GlassBox Research blog: the Committee Casebook, one post per day the committee sat. */
 export default function BlogIndexPage() {
@@ -16,7 +17,7 @@ export default function BlogIndexPage() {
   });
 
   return (
-    <section className="mx-auto max-w-[860px] px-sp6 py-sp10">
+    <section className="mx-auto max-w-[1100px] px-sp6 py-sp10">
       <div className="mb-sp2 text-[12px] font-bold uppercase tracking-wide text-t3">GlassBox Research</div>
       <h1 className="mb-sp3 text-[32px] font-extrabold leading-tight tracking-tight text-t1">The Committee Casebook</h1>
       <p className="mb-sp8 max-w-[620px] text-[14px] leading-relaxed text-t2">
@@ -27,26 +28,10 @@ export default function BlogIndexPage() {
       {q.isPending && <p className="text-[13px] text-t3">Loading…</p>}
       {q.isError && <p className="text-[13px] text-red">{q.error instanceof ApiError ? q.error.message : "Could not load the casebook"}</p>}
       {q.data && !q.data.posts.length && <p className="text-[13px] text-t3">No committee reviews yet.</p>}
-      {q.data && q.data.posts.length > 0 && (() => {
-        const calls = q.data.posts.flatMap((p) => Object.values(p.decisions));
-        const holds = calls.filter((d) => d === "HOLD").length;
-        const tiles = [
-          { v: String(q.data.posts.length), l: "trading days on record" },
-          { v: String(calls.length), l: "calls made, every one public" },
-          { v: `${Math.round((holds / Math.max(calls.length, 1)) * 100)}%`, l: "of calls were HOLD (wait)" },
-          { v: String(q.data.posts.filter((p) => p.disagreements.length).length), l: "days the AI overruled the plain engine" },
-        ];
-        return (
-          <div className="mb-sp8 grid grid-cols-2 gap-sp3 md:grid-cols-4">
-            {tiles.map((t) => (
-              <div key={t.l} className="glass-panel p-sp4">
-                <div className="text-[26px] font-extrabold leading-none text-t1">{t.v}</div>
-                <div className="mt-sp2 text-[12px] text-t2">{t.l}</div>
-              </div>
-            ))}
-          </div>
-        );
-      })()}
+      <div className="mb-sp10">
+        <Feed />
+      </div>
+      {q.data && q.data.posts.length > 0 && <h2 className="mb-sp4 text-[20px] font-extrabold text-t1">Every day, in full</h2>}
 
       <ul className="flex flex-col gap-sp3">
         {q.data?.posts.map((p) => (
