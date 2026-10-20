@@ -29,8 +29,12 @@ def real_db(tmp_path, monkeypatch):
     from app import db as real
 
     eng = create_engine(f"sqlite:///{tmp_path / 'test.db'}", connect_args={"check_same_thread": False})
+    from app import casebook
+
     real.metadata.create_all(eng)
     monkeypatch.setattr(real, "engine", eng)
+    for cache in (casebook._feed_cache, casebook._posts_cache):  # per-worker caches would leak one test's days into the next
+        cache.update({"value": None, "key": None})
     return real
 
 

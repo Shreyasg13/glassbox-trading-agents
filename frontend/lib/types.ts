@@ -641,7 +641,14 @@ export type GateHealth = {
 export type CasebookLean = "BUY" | "SELL" | "HOLD";
 export interface CasebookTeaser {
   date: string;
-  title: string;
+  title: string; // the editorial board's published pick, else the least routine thing that happened
+  kicker: "Overrule" | "Debate" | "Casebook";
+  dek: string;
+  excerpt: { agent: string; lean: CasebookLean; text: string } | null;
+  focus: string | null;
+  tags: string[];
+  editors_pick: boolean;
+  read_minutes: number;
   symbols: string[];
   decisions: Record<string, CasebookLean | null>;
   disagreements: string[];
