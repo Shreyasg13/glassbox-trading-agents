@@ -1,10 +1,12 @@
 """Public endpoints that require no authentication."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from fastapi.concurrency import run_in_threadpool
 
-from .. import disclaimer, scoring
+from .. import casebook, disclaimer, scoring
 from ..auth import require_role
 
 router = APIRouter(prefix="/api/public", tags=["public"])
@@ -76,3 +78,18 @@ async def track_record_summary() -> dict[str, Any]:
         return summary
 
     return await run_in_threadpool(_compute)
+
+
+@router.get("/casebook", dependencies=[Depends(require_role("public"))])
+async def casebook_posts(limit: int = Query(30, ge=1, le=120)) -> dict[str, Any]:
+    """The Committee Casebook blog index: one post per day the committee sat, newest first."""
+    return await run_in_threadpool(casebook.posts, limit)
+
+
+@router.get("/casebook/{day}", dependencies=[Depends(require_role("public"))])
+async def casebook_post(day: str = Path(..., pattern=r"^\d{4}-\d{2}-\d{2}$")) -> dict[str, Any]:
+    """One day's casebook: each analyst's labelled lean and reasoning, the vote, and the 5-day outcome."""
+    doc = await run_in_threadpool(casebook.post, day)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="No committee review on that day")
+    return doc

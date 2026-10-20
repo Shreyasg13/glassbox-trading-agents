@@ -636,3 +636,47 @@ export type GateHealth = {
   top_checks: GateHealthCheck[];
   top_metrics: GateHealthMetric[];
 };
+
+// ---- Committee Casebook (public blog, /api/public/casebook) ----
+export type CasebookLean = "BUY" | "SELL" | "HOLD";
+export interface CasebookTeaser {
+  date: string;
+  title: string;
+  symbols: string[];
+  decisions: Record<string, CasebookLean | null>;
+  disagreements: string[];
+}
+export interface CasebookIndex {
+  posts: CasebookTeaser[];
+  disclaimer: string;
+}
+export interface CasebookAnalyst {
+  agent: string;
+  type: "llm" | "deterministic";
+  lean: CasebookLean | null;
+  summary: string | null; // null = withheld by the compliance filter
+  confidence?: number | null;
+}
+export interface CasebookCase {
+  symbol: string;
+  why: string | null;
+  engine_signal: CasebookLean | null;
+  decision: CasebookLean | null;
+  acted_on: string | null;
+  votes: Record<CasebookLean, number> | null;
+  headline: string | null;
+  agrees_with_engine: boolean | null;
+  quorum_ok: boolean;
+  answered: number;
+  total: number;
+  analysts: CasebookAnalyst[];
+  did_not_answer: number;
+  withheld: number;
+  outcome: { horizon: number; return: number; spy_return: number | null; excess: number | null; right: boolean | null } | null;
+}
+export interface CasebookPost {
+  date: string;
+  horizon: number;
+  cases: CasebookCase[];
+  disclaimer: string;
+}
