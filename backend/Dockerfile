@@ -21,6 +21,8 @@ FROM python:3.12-slim AS runtime
 WORKDIR /app
 COPY --from=builder /install /usr/local
 COPY app ./app
+# Compliance rules and disclaimer text: without these the A7 filter cannot load and the disclaimer falls back.
+COPY config ./config
 
 ENV PYTHONUNBUFFERED=1
 

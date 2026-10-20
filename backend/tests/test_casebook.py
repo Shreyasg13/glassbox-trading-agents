@@ -74,3 +74,21 @@ def test_outcome_scores_call_against_spy():
     out = casebook._outcome(Book(), "NVDA", "d0", "SELL")
     assert out["return"] > 0 and out["spy_return"] == 0 and out["right"] is False
     assert casebook._outcome(Book(), "NVDA", "d3", "BUY") is None  # not 5 trading days old yet
+
+
+def test_filter_failure_withholds_instead_of_500(real_db, monkeypatch):
+    def boom(text, **kw):
+        raise FileNotFoundError("compliance_rules.json")
+    monkeypatch.setattr(casebook, "_book", lambda: None)
+    monkeypatch.setattr(casebook.cf, "check", boom)
+    _seed(_run("2026-10-14", "NVDA"))
+    with TestClient(app) as client:
+        r = client.get("/api/public/casebook/2026-10-14")
+    assert r.status_code == 200
+    assert r.json()["cases"][0]["analysts"][0]["summary"] is None
+
+
+def test_backend_image_ships_config():
+    from pathlib import Path
+    dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text(encoding="utf-8")
+    assert "COPY config ./config" in dockerfile
