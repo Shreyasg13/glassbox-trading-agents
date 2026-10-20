@@ -325,14 +325,14 @@ ADMIN   GET  /admin/flags      POST /admin/flags/{key}
 - [x] T2 Baseline discrepancy script
 - [x] T3 Structured claim output
 - [x] T4 A6 verification gate
-- [ ] T5 Route all outputs through `publish()`
+- [x] T5 Route all outputs through `publish()` (2026-09-28; runs in shadow mode until `publish.enforce` is switched on, which waits for T6)
 - [ ] T6 Quarantine and admin review
 - [ ] T7 User evidence view
 - [x] T8 A7 compliance filter (filter built; wired into outputs by T5)
 - [x] T9 Disclaimer config (the compliance log tab moved to T8: it needs `compliance_events`; the Compliance tab now exists)
 - [x] T10 Point-in-time snapshot store
 - [x] T11 Hash-chained ledger
-- [ ] T12 Forward-only scoring
+- [x] T12 Forward-only scoring (2026-09-29; fixes and P(beat SPY) 2026-10-12)
 - [ ] T13 Weekly discrepancy report
 - [x] T14 Gate health dashboard
 - [ ] T15 Ablation harness
@@ -384,3 +384,11 @@ ADMIN   GET  /admin/flags      POST /admin/flags/{key}
 | 2026-09-26 | T8 | `compliance_events` (Alembic 0006); pure `compliance.check()` + never-raising `record()`; rules as data in `backend/config/compliance_rules.json` (JSON, not the planned rules.yaml: PyYAML is not installed): promotional phrases, direct advice and personalized holding instructions (real tickers only) block, but are flagged when quoted or reported; "act now" and performance mentions without `{{ledger:...}}` flag; a missing disclaimer is appended (the only rewrite, HTML-aware); matching sees through HTML; admin Compliance tab + `/api/admin/compliance/events` and `/rules`; 113 rule tests (133 in `test_compliance.py`). One review round (false positives on real text, HTML, regex performance). Filter built; wired into outputs by T5 | branch `s3/T8-compliance` |
 | 2026-09-26 | T4b | Closed the A6 gaps against T4 (no migration): pure `check_snapshot_integrity` (payload re-hashed with `snapshot_store`'s canonical helper vs stored `payload_hash`) and `check_unit` (`EXPECTED_UNITS` for all 21 metrics `build_claims` emits; mismatch fails, unknown warns), both run by `verify_run` through `_safe` and stored like the others. Tolerance: traceability stays exact (values are copied); `RENDER_TOLERANCE_REL = 0.005` kept for T7. Latency test (25 claims) well under 200 ms. Config stays in `verification/config.py`, not the plan's `config.yaml` (typed, reviewed in code, no loader) | branch `s3/T4b-gate-gaps` |
 | 2026-09-26 | T14 | Gate health tab (read-only, no migration): pure aggregates in `verification/health.py` (daily claim pass rate via `gate.summarize`'s rule, runs ok, top five failing checks with most common reason, top five failing metrics joined to `claims`); `GET /api/admin/gate-health?from=&to=` (default 30 days, >366 days -> 400); inline-SVG 0–100% chart; 17 tests; 1 review round | branch `s3/T14-gate-health` |
+| 2026-09-28 | T5 | `publish()` single exit with A6 and A7 checks, ledger append and quarantine (Alembic 0007); shadow mode by default, `publish.enforce` flag holds failing outputs; enforce-mode tests in T5b | PR #37, #42 |
+| 2026-09-29 | T12 | `call_outcomes` (Alembic 0008), `scoring.py` (pure: eligibility before 09:30 ET, excess vs SPY, Brier, rank IC, calibration), daily `score_ledger` job, user and public track-record routes | PR #39, #40, #43 |
+| 2026-09-29 | T18a | Risk metrics core (pure functions); outside the original T-list, from the strategy review | PR #44 |
+| 2026-10-12 | T12 fix | First forward-only study on production data found three bugs: public track record returned 500 once a horizon reached 10 calls, the ledger's 0-1 vote share was read as 0-100, and confidence 100 fell outside every calibration bin. PyJWT 2.15.0 for the CI audit gate | PR #53 |
+| 2026-10-12 | T12 ext | 149 of 150 calls were HOLD, which scores 0. Analysts now state P(beat SPY over 5 days) on every call; `scoring.prob_metrics`; `docs/s3/PREREGISTRATION.md` fixes claims P1-P5 before outcomes | PR #54 |
+| 2026-10-12 | T12 ext | Date-blocked shuffle test, deflated Sharpe on the evidence table, `app.scripts.forward_study`. Deployed as 6651a1a on 2026-10-13 | PR #55 |
+
+Further work moves to S4: see [../S4_RESEARCH_LAB_PLAN.md](../S4_RESEARCH_LAB_PLAN.md) and [../ROADMAP.md](../ROADMAP.md). T6, T7, T13 and T15 stay S3 tasks.
