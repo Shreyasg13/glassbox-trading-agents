@@ -680,3 +680,14 @@ export interface CasebookPost {
   cases: CasebookCase[];
   disclaimer: string;
 }
+
+// ---- Casebook feed (/api/public/casebook/feed) ----
+export interface FeedQuote { agent: string; lean: CasebookLean; text: string }
+export type FeedCard =
+  | { type: "day"; date: string; href: string; headline: string; stocks: number; decisions: Record<string, CasebookLean | null>; overruled: string[]; opinions: Record<CasebookLean, number> }
+  | { type: "debate"; date: string; href: string; symbol: string; split: Record<CasebookLean, number>; decision: CasebookLean | null; quotes: FeedQuote[] }
+  | { type: "overrule"; date: string; href: string; symbol: string; engine: CasebookLean | null; decision: CasebookLean | null; outcome: CasebookCase["outcome"]; quote: FeedQuote | null }
+  | { type: "verdict"; date: string; href: string; horizon: number; best: { symbol: string; decision: CasebookLean | null; excess: number }; worst: { symbol: string; decision: CasebookLean | null; excess: number }; judged: number; right: number }
+  | { type: "quote"; date: string; href: string; symbol: string; quote: FeedQuote; decision: CasebookLean | null }
+  | { type: "scoreboard"; href: string; days: number; calls: number; hold_share: number | null; scored: number; right: number; overrule_days: number };
+export interface CasebookFeed { updated: string | null; latest?: string; cards: FeedCard[]; disclaimer: string }

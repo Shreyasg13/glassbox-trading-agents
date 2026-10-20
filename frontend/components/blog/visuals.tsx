@@ -14,7 +14,8 @@ const pct = (x: number, dp = 1) => `${x >= 0 ? "+" : ""}${(x * 100).toFixed(dp)}
 export function postFacts(p: CasebookPost) {
   const cases = p.cases;
   const count = (d: CasebookLean) => cases.filter((c) => c.decision === d).length;
-  const analysts = new Set(cases.flatMap((c) => c.analysts.map((a) => a.agent))).size;
+  const analysts = new Set(cases.flatMap((c) => c.analysts.filter((a) => a.type === "llm").map((a) => a.agent))).size;
+  const quant = new Set(cases.flatMap((c) => c.analysts.filter((a) => a.type !== "llm").map((a) => a.agent))).size;
   const agreement = cases
     .map((c) => {
       const voiced = c.analysts.filter((a) => a.lean);
@@ -34,6 +35,7 @@ export function postFacts(p: CasebookPost) {
     sell: count("SELL"),
     hold: count("HOLD"),
     analysts,
+    quant,
     agreement: agreement.length ? agreement.reduce((a, b) => a + b, 0) / agreement.length : null,
     overruled: cases.filter((c) => c.agrees_with_engine === false).map((c) => c.symbol),
     mostSplit: split && LEANS.filter((l) => split.n[l] > 0).length > 1 ? split : null,
@@ -49,9 +51,10 @@ export function postFacts(p: CasebookPost) {
 type Facts = ReturnType<typeof postFacts>;
 
 function headline(f: Facts): string {
-  if (f.hold === f.n) return `${f.analysts} AI analysts looked at ${f.n} stocks. On every single one, their verdict was: wait.`;
+  const who = `${f.analysts} AI analysts${f.quant ? ` and ${f.quant} quant models` : ""}`;
+  if (f.hold === f.n) return `${who} looked at ${f.n} stocks. On every single one, their verdict was: wait.`;
   const moves = [f.buy && `${f.buy} BUY`, f.sell && `${f.sell} SELL`].filter(Boolean).join(" and ");
-  return `${f.analysts} AI analysts looked at ${f.n} stocks. They made ${moves}, and said wait on the other ${f.hold}.`;
+  return `${who} looked at ${f.n} stocks. They made ${moves}, and said wait on the other ${f.hold}.`;
 }
 
 function Stat({ value, label, sub }: { value: string; label: string; sub?: string }) {

@@ -86,6 +86,12 @@ async def casebook_posts(limit: int = Query(30, ge=1, le=120)) -> dict[str, Any]
     return await run_in_threadpool(casebook.posts, limit)
 
 
+@router.get("/casebook/feed", dependencies=[Depends(require_role("public"))])
+async def casebook_feed() -> dict[str, Any]:
+    """The daily feed: typed cards (the day, the most debated stock, an overrule, the latest verdict, a quote, the scoreboard)."""
+    return await run_in_threadpool(casebook.feed)
+
+
 @router.get("/casebook/{day}", dependencies=[Depends(require_role("public"))])
 async def casebook_post(day: str = Path(..., pattern=r"^\d{4}-\d{2}-\d{2}$")) -> dict[str, Any]:
     """One day's casebook: each analyst's labelled lean and reasoning, the vote, and the 5-day outcome."""
