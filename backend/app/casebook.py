@@ -9,11 +9,14 @@ Every analyst summary goes through the A7 compliance filter; anything it flags o
 is withheld rather than published."""
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any, Dict, List, Optional
 
 from . import committee_daily, db, disclaimer, paper_cycle
 from .compliance import filter as cf
+
+log = logging.getLogger("glassbox.casebook")
 
 HORIZON = 5  # trading days, the same horizon the track record scores
 BENCH = "SPY"
@@ -48,8 +51,12 @@ def _outcome(book: Optional[Any], symbol: str, d: str, call: Optional[str]) -> O
 
 
 def _safe_summary(text: str, symbol: str) -> Optional[str]:
-    """None when the compliance filter would flag or block this text on a public page."""
-    res = cf.check(text, channel="blog", tickers=[symbol])
+    """None when the compliance filter would flag or block this text on a public page, or cannot run (fail closed)."""
+    try:
+        res = cf.check(text, channel="blog", tickers=[symbol])
+    except Exception:  # noqa: BLE001 -- e.g. rules file missing: publish nothing unchecked
+        log.exception("casebook: compliance filter unavailable; withholding summary")
+        return None
     return None if res.action in ("flagged", "blocked") else text
 
 
