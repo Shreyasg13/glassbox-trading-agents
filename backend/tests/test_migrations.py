@@ -38,7 +38,7 @@ def test_upgrade_creates_the_table_and_records_the_revision(engine):
     assert "call_outcomes" not in tables(engine)
     with engine.begin() as conn:
         migrate.upgrade(conn)
-    assert "feature_flags" in tables(engine) and "source_snapshots" in tables(engine) and "ledger_calls" in tables(engine) and "claims" in tables(engine) and "committee_narratives" in tables(engine) and "verification_results" in tables(engine) and "compliance_events" in tables(engine) and "quarantine_items" in tables(engine) and "call_outcomes" in tables(engine) and revision(engine) == "0008"
+    assert "feature_flags" in tables(engine) and "source_snapshots" in tables(engine) and "ledger_calls" in tables(engine) and "claims" in tables(engine) and "committee_narratives" in tables(engine) and "verification_results" in tables(engine) and "compliance_events" in tables(engine) and "quarantine_items" in tables(engine) and "call_outcomes" in tables(engine) and "studio_drafts" in tables(engine) and revision(engine) == "0009"
     cols = {c["name"] for c in inspect(engine).get_columns("feature_flags")}
     assert cols == {"key", "enabled", "updated_by", "updated_at"}
     snap_cols = {c["name"] for c in inspect(engine).get_columns("source_snapshots")}
@@ -73,13 +73,13 @@ def test_upgrading_twice_is_a_no_op(engine):
     for _ in range(2):
         with engine.begin() as conn:
             migrate.upgrade(conn)
-    assert revision(engine) == "0008"
+    assert revision(engine) == "0009"
 
 
 def test_0008_upgrade_creates_call_outcomes_table(engine):
     with engine.begin() as conn:
         migrate.upgrade(conn)
-    assert revision(engine) == "0008"
+    assert revision(engine) == "0009"
     cols = {c["name"] for c in inspect(engine).get_columns("call_outcomes")}
     expected = {"call_id", "horizon", "evaluated_at", "outcome_json", "score"}
     assert cols == expected
@@ -111,7 +111,7 @@ def test_0006_downgrades_to_0005_dropping_only_compliance_events(engine):
     assert "compliance_events" not in tables(engine) and "verification_results" in tables(engine)
     with engine.begin() as conn:
         migrate.upgrade(conn)
-    assert revision(engine) == "0008"
+    assert revision(engine) == "0009"
     with engine.connect() as c:
         assert c.execute(migrated_metadata.tables["compliance_events"].select()).fetchall() == []
 
@@ -173,3 +173,14 @@ def test_a_failing_migration_reports_failure_without_raising(monkeypatch, capsys
 
     monkeypatch.setattr(migrate, "upgrade", boom)
     assert migrate.main([]) == 1  # loud (non-zero, logged) but the container still starts: see the Dockerfile
+
+
+def test_0009_studio_drafts_up_and_down(engine):
+    with engine.begin() as conn:
+        migrate.upgrade(conn)
+    cols = {c["name"] for c in inspect(engine).get_columns("studio_drafts")}
+    assert cols == {"id", "kind", "date", "status", "payload_json", "created_at", "updated_at"}
+    with engine.begin() as conn:
+        migrate.downgrade("0008", conn)
+    assert revision(engine) == "0008"
+    assert "studio_drafts" not in tables(engine) and "call_outcomes" in tables(engine)

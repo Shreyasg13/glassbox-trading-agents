@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, apiFetch } from "@/lib/api";
-import type { CasebookIndex } from "@/lib/types";
+import type { CasebookIndex, Recap } from "@/lib/types";
 import { LEAN_FILL, LEAN_GLYPH } from "@/components/blog/visuals";
 import { Feed } from "@/components/blog/Feed";
 
@@ -12,6 +12,12 @@ export default function BlogIndexPage() {
   const q = useQuery({
     queryKey: ["casebook"],
     queryFn: () => apiFetch<CasebookIndex>("/api/public/casebook?limit=120"),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+  const recaps = useQuery({
+    queryKey: ["recaps"],
+    queryFn: () => apiFetch<{ recaps: Recap[] }>("/api/public/recaps"),
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
@@ -31,6 +37,24 @@ export default function BlogIndexPage() {
       <div className="mb-sp10">
         <Feed />
       </div>
+      {(recaps.data?.recaps.length ?? 0) > 0 && (
+        <div className="mb-sp10">
+          <h2 className="mb-sp4 text-[20px] font-extrabold text-t1">Weekly recaps</h2>
+          <div className="grid grid-cols-1 gap-sp3 md:grid-cols-2">
+            {recaps.data!.recaps.map((r) => (
+              <Link
+                key={r.id}
+                href={`/blog/week/${r.id.replace(/^recap:/, "")}`}
+                className="glass-panel block p-sp5 transition-all duration-200 ease-glass hover:-translate-y-0.5 hover:border-border2"
+              >
+                <div className="mono mb-sp1 text-[11px] text-t3">{r.id.replace(/^recap:/, "")}</div>
+                <div className="mb-sp2 text-[15px] font-bold text-t1">{r.title}</div>
+                <p className="line-clamp-2 text-[12.5px] text-t2">{r.paragraphs[0]}</p>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
       {q.data && q.data.posts.length > 0 && <h2 className="mb-sp4 text-[20px] font-extrabold text-t1">Every day, in full</h2>}
 
       <ul className="flex flex-col gap-sp3">

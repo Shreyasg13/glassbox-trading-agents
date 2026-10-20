@@ -691,3 +691,6 @@ export type FeedCard =
   | { type: "quote"; date: string; href: string; symbol: string; quote: FeedQuote; decision: CasebookLean | null }
   | { type: "scoreboard"; href: string; days: number; calls: number; hold_share: number | null; scored: number; right: number; overrule_days: number };
 export interface CasebookFeed { updated: string | null; latest?: string; cards: FeedCard[]; disclaimer: string }
+
+// ---- Weekly recaps (/api/public/recaps), approved in Admin -> Studio ----
+export interface Recap { id: string; date: string; title: string; paragraphs: string[]; published_at?: string }

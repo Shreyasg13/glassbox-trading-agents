@@ -4,7 +4,8 @@ export async function generateMetadata({ params }: { params: Promise<{ date: str
   const { date } = await params;
   const title = `What the AI committee argued on ${date} · GlassBox Research`;
   const description = "Every analyst's call and reasoning, the vote, and how it played out against SPY. Simulated research, not investment advice.";
-  return { title, description, openGraph: { title, description, type: "article" }, twitter: { card: "summary_large_image", title, description } };
+  const images = [{ url: `/share/${date}`, width: 1200, height: 630, alt: `GlassBox Research Committee Casebook, ${date}` }];
+  return { title, description, openGraph: { title, description, type: "article", images }, twitter: { card: "summary_large_image", title, description, images } };
 }
 
 export default function Layout({ children }: { children: React.ReactNode }) {
