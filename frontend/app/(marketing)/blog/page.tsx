@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, apiFetch } from "@/lib/api";
 import type { CasebookIndex, Recap } from "@/lib/types";
-import { LEAN_FILL, LEAN_GLYPH } from "@/components/blog/visuals";
 import { Feed } from "@/components/blog/Feed";
+import { PostGrid } from "@/components/blog/PostGrid";
 
 /** GlassBox Research blog: the Committee Casebook, one post per day the committee sat. */
 export default function BlogIndexPage() {
@@ -55,39 +55,12 @@ export default function BlogIndexPage() {
           </div>
         </div>
       )}
-      {q.data && q.data.posts.length > 0 && <h2 className="mb-sp4 text-[20px] font-extrabold text-t1">Every day, in full</h2>}
-
-      <ul className="flex flex-col gap-sp3">
-        {q.data?.posts.map((p) => (
-          <li key={p.date}>
-            <Link
-              href={`/blog/${p.date}`}
-              className="glass-panel block p-sp5 transition-all duration-200 ease-glass hover:-translate-y-0.5 hover:border-border2"
-            >
-              <div className="mono mb-sp1 text-[11px] text-t3">{p.date}</div>
-              <div className="mb-sp2 text-[15px] font-bold text-t1">What the committee argued about {p.symbols.length} stocks</div>
-              <div className="flex flex-wrap gap-1">
-                {p.symbols.map((s) => {
-                  const d = p.decisions[s];
-                  return (
-                    <span
-                      key={s}
-                      className="mono flex items-center gap-1 rounded-[4px] border border-border bg-bg2 px-1.5 py-0.5 text-[10.5px] text-t2"
-                      title={`${s}: ${d ?? "no call"}`}
-                    >
-                      <span style={{ color: d ? LEAN_FILL[d] : undefined }}>{d ? LEAN_GLYPH[d] : "–"}</span>
-                      {s}
-                    </span>
-                  );
-                })}
-              </div>
-              {p.disagreements.length > 0 && (
-                <div className="mt-sp1 text-[12px] text-gold">Committee overruled the engine on {p.disagreements.join(", ")}</div>
-              )}
-            </Link>
-          </li>
-        ))}
-      </ul>
+      {q.data && q.data.posts.length > 0 && (
+        <>
+          <h2 className="mb-sp4 text-[20px] font-extrabold text-t1">All posts</h2>
+          <PostGrid posts={q.data.posts} />
+        </>
+      )}
 
       {q.data && <p className="mt-sp8 text-[11px] leading-relaxed text-t3">{q.data.disclaimer}</p>}
     </section>

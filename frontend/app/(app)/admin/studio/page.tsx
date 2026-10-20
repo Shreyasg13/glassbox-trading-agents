@@ -7,10 +7,10 @@ import { useAuth } from "@/lib/auth";
 
 type Draft = {
   id: string;
-  kind: "linkedin" | "x_thread" | "caption" | "recap";
+  kind: "linkedin" | "x_thread" | "caption" | "recap" | "editorial";
   date: string;
   status: "ready" | "pending" | "published" | "rejected";
-  source: "model" | "template";
+  source: "model" | "template" | "editor" | "marketer";
   rejected: string[];
   text?: string;
   posts?: string[];
@@ -18,9 +18,16 @@ type Draft = {
   paragraphs?: string[];
   week?: string;
   updated_at: string;
+  // editorial board picks
+  dek?: string;
+  tags?: string[];
+  promote?: number | null;
+  channel?: string | null;
+  note?: string | null;
+  members?: Record<string, { title?: string; dek?: string; rejected: string[] }>;
 };
 
-const LABEL: Record<Draft["kind"], string> = { linkedin: "LinkedIn post", x_thread: "X thread", caption: "Short caption", recap: "Weekly recap" };
+const LABEL: Record<Draft["kind"], string> = { linkedin: "LinkedIn post", x_thread: "X thread", caption: "Short caption", recap: "Weekly recap", editorial: "Editorial board" };
 const ORDER: Draft["kind"][] = ["linkedin", "x_thread", "caption"];
 
 function CopyButton({ text }: { text: string }) {
@@ -39,7 +46,7 @@ function CopyButton({ text }: { text: string }) {
 function Provenance({ d }: { d: Draft }) {
   return (
     <div className="text-[10.5px] text-t3">
-      {d.source === "model" ? "Written by the model, passed every check" : "Template draft"}
+      {d.source === "template" ? "Template draft" : d.source === "model" ? "Written by the model, passed every check" : `The ${d.source}'s version, passed every check`}
       {d.rejected.length > 0 && <span title={d.rejected.join("\n")}> · model draft rejected: {d.rejected[0]}</span>}
     </div>
   );
@@ -93,7 +100,13 @@ export default function StudioPage() {
 
   const drafts = q.data?.drafts ?? [];
   const recaps = drafts.filter((d) => d.kind === "recap");
-  const days = Array.from(new Set(drafts.filter((d) => d.kind !== "recap").map((d) => d.date))).sort().reverse();
+  const picks = drafts.filter((d) => d.kind === "editorial");
+  const days = Array.from(new Set(drafts.filter((d) => !["recap", "editorial"].includes(d.kind)).map((d) => d.date))).sort().reverse();
+  const board = useMutation({
+    mutationFn: (allDays: boolean) =>
+      apiFetch("/api/admin/studio/editorial/run", { method: "POST", token: token ?? undefined, body: JSON.stringify({ all_days: allDays }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["studio-drafts"] }),
+  });
   const err = (e: unknown) => (e instanceof ApiError ? e.message : "failed");
 
   return (
@@ -120,6 +133,68 @@ export default function StudioPage() {
       {q.isPending && <p className="text-[12px] text-t3">Loading…</p>}
       {q.isError && <p className="text-[12px] text-red">{err(q.error)}</p>}
       {q.data && !drafts.length && <p className="text-[12px] text-t3">No drafts yet. They appear after the next committee run, or press &ldquo;Write today&apos;s drafts now&rdquo;.</p>}
+
+      <section className="flex flex-col gap-sp3">
+        <div className="flex flex-wrap items-baseline justify-between gap-sp2">
+          <div>
+            <h2 className="text-[14px] font-bold text-t1">Editorial board: blog headlines (need your approval)</h2>
+            <p className="max-w-[640px] text-[12px] text-t3">
+              The editor drafts each day&apos;s title, one-line summary and tags; the growth marketer sharpens the hook and scores how worth promoting the
+              day is; compliance (number check + A7 filter) gates both. A published pick replaces the card&apos;s template title on /blog; 4+ shows as
+              Editor&apos;s pick.
+            </p>
+          </div>
+          <span className="flex gap-sp2">
+            <button type="button" className="btn btn-ghost text-[12px]" disabled={board.isPending} onClick={() => board.mutate(false)}>
+              {board.isPending ? "Board is reviewing…" : "Review latest day"}
+            </button>
+            <button type="button" className="btn btn-ghost text-[12px]" disabled={board.isPending} onClick={() => board.mutate(true)}>
+              Review every unpublished day
+            </button>
+          </span>
+        </div>
+        {board.isError && <p className="text-[12px] text-red">{err(board.error)}</p>}
+        {picks.map((r) => (
+          <div key={r.id} className="rounded-r2 border border-border bg-bg2/40 p-sp4">
+            <div className="mb-sp1 flex flex-wrap items-center justify-between gap-sp2">
+              <span className="mono text-[11px] text-t3">
+                <a href={`/blog/${r.date}`} target="_blank" rel="noreferrer" className="hover:underline">{r.date} ↗</a>
+                {r.promote != null && <> · promote {r.promote}/5{r.channel && r.channel !== "none" ? ` on ${r.channel}` : ""}</>}
+              </span>
+              <span className={`rounded-r4 px-sp2 py-0.5 text-[10.5px] font-bold uppercase ${r.status === "published" ? "bg-teal-dim text-teal" : r.status === "rejected" ? "bg-red-dim text-red" : "bg-gold-dim text-gold"}`}>
+                {r.status}
+              </span>
+            </div>
+            <div className="text-[14px] font-bold text-t1">{r.title}</div>
+            <p className="mb-sp2 text-[12.5px] text-t2">{r.dek}</p>
+            {r.note && <p className="mb-sp2 text-[11.5px] italic text-t3">Marketer: {r.note}</p>}
+            {r.members && (
+              <details className="mb-sp2 text-[11.5px] text-t3">
+                <summary className="cursor-pointer">What each member proposed</summary>
+                {Object.entries(r.members).map(([who, m]) => (
+                  <div key={who} className="mt-1">
+                    <b className="capitalize">{who}</b>: {m.title ?? "—"}
+                    {m.rejected.length > 0 && <span className="text-red"> · rejected: {m.rejected.join("; ")}</span>}
+                  </div>
+                ))}
+              </details>
+            )}
+            <div className="flex flex-wrap items-center gap-sp2">
+              {r.status !== "published" && (
+                <button type="button" className="btn btn-primary px-sp3 py-1 text-[11.5px]" onClick={() => review.mutate({ id: r.id, status: "published" })}>
+                  Publish headline
+                </button>
+              )}
+              {r.status !== "rejected" && (
+                <button type="button" className="btn btn-ghost px-sp3 py-1 text-[11.5px]" onClick={() => review.mutate({ id: r.id, status: "rejected" })}>
+                  {r.status === "published" ? "Unpublish" : "Reject"}
+                </button>
+              )}
+              <Provenance d={r} />
+            </div>
+          </div>
+        ))}
+      </section>
 
       {recaps.length > 0 && (
         <section className="flex flex-col gap-sp3">

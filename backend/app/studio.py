@@ -343,14 +343,14 @@ def list_drafts(limit: int = 60, kind: Optional[str] = None, status: Optional[st
 
 
 def set_status(item_id: str, status: str) -> Optional[Dict[str, Any]]:
-    """Only a recap moves through review (pending -> published | rejected); social drafts are never published from here."""
+    """Only a recap or an editorial-board pick moves through review (pending -> published | rejected); social drafts are never published from here."""
     item = get(item_id)
-    if not item or item["kind"] != "recap" or status not in ("published", "rejected", "pending"):
+    if not item or item["kind"] not in ("recap", "editorial") or status not in ("published", "rejected", "pending"):
         return None
     payload = {k: v for k, v in item.items() if k not in ("id", "kind", "date", "status", "created_at", "updated_at")}
     if status == "published":
         payload["published_at"] = _now()
-    return _save(item_id, "recap", item["date"], status, payload)
+    return _save(item_id, item["kind"], item["date"], status, payload)
 
 
 def published_recaps() -> List[Dict[str, Any]]:
