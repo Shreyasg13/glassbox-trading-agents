@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { CasebookCase, CasebookLean, CasebookPost } from "@/lib/types";
+import { dayHeadline } from "@/lib/casebookText";
 
 // BUY/SELL/HOLD always travel with a glyph and a word, never colour alone (teal/red is a CVD-marginal pair).
 export const LEAN_FILL: Record<CasebookLean, string> = { BUY: "var(--c-teal)", SELL: "var(--c-red)", HOLD: "var(--c-t3)" };
@@ -50,12 +51,6 @@ export function postFacts(p: CasebookPost) {
 
 type Facts = ReturnType<typeof postFacts>;
 
-function headline(f: Facts): string {
-  const who = `${f.analysts} AI analysts${f.quant ? ` and ${f.quant} quant models` : ""}`;
-  if (f.hold === f.n) return `${who} looked at ${f.n} stocks. On every single one, their verdict was: wait.`;
-  const moves = [f.buy && `${f.buy} BUY`, f.sell && `${f.sell} SELL`].filter(Boolean).join(" and ");
-  return `${who} looked at ${f.n} stocks. They made ${moves}, and said wait on the other ${f.hold}.`;
-}
 
 function Stat({ value, label, sub }: { value: string; label: string; sub?: string }) {
   return (
@@ -68,11 +63,11 @@ function Stat({ value, label, sub }: { value: string; label: string; sub?: strin
 }
 
 /** The top of a post: a plain-English headline and the handful of numbers that matter. */
-export function PostHero({ f, date }: { f: Facts; date: string }) {
+export function PostHero({ f, date, cases }: { f: Facts; date: string; cases: CasebookCase[] }) {
   return (
     <div className="mb-sp8">
       <div className="mono mb-sp2 text-[11px] text-t3">{date} · GlassBox Research · Committee Casebook</div>
-      <h1 className="mb-sp3 text-[30px] font-extrabold leading-tight tracking-tight text-t1 md:text-[34px]">{headline(f)}</h1>
+      <h1 className="mb-sp3 text-[30px] font-extrabold leading-tight tracking-tight text-t1 md:text-[34px]">{dayHeadline(cases)}</h1>
       <p className="mb-sp6 max-w-[640px] text-[14.5px] leading-relaxed text-t2">
         Here&apos;s who argued what, where they disagreed, and{f.hasOutcomes ? " how it actually turned out five trading days later" : " (in five trading days) how it turns out"}. Wrong calls stay up too.
       </p>

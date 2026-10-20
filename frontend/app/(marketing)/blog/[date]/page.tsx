@@ -26,7 +26,7 @@ export default function BlogPostPage() {
 
       {q.data && (
         <>
-          <PostHero f={postFacts(q.data)} date={date} />
+          <PostHero f={postFacts(q.data)} date={date} cases={q.data.cases} />
           <LeanHeatmap cases={q.data.cases} />
           <OutcomeBars cases={q.data.cases} horizon={q.data.horizon} />
           <Takeaways f={postFacts(q.data)} />

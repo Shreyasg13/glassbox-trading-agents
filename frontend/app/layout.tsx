@@ -5,6 +5,8 @@ import { PageViewBeacon } from "@/components/analytics/PageViewBeacon";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  // Absolute base for share-image URLs (og:image); the site and the API share one public origin.
+  metadataBase: new URL(process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000"),
   title: "Glass Box",
   description: "Multi-agent trading system · glass UI",
 };

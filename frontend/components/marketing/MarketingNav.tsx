@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 // Absolute "/#section" hrefs, not bare "#section" -- this nav also renders
@@ -15,15 +16,17 @@ const links = [
   { href: "/#how-it-works", label: "How it Works" },
   { href: "/#strategy-lenses", label: "Strategy Lenses" },
   { href: "/#access", label: "Free access" },
-  { href: "/#blog", label: "Research" },
+  { href: "/blog", label: "Blog" },
 ];
 
 export function MarketingNav() {
   const [active, setActive] = useState<string | null>(null);
+  const pathname = usePathname();
+  const isActive = (href: string) => active === href || (href === "/blog" && pathname.startsWith("/blog"));
 
   useEffect(() => {
-    // hrefs are "/#id" -- strip the leading "/#" (2 chars), not just "#".
-    const ids = links.map((l) => l.href.slice(2));
+    // Section links are "/#id" -- strip the leading "/#" (2 chars), not just "#". "/blog" is a page, not a section.
+    const ids = links.filter((l) => l.href.startsWith("/#")).map((l) => l.href.slice(2));
     const sections = ids
       .map((id) => document.getElementById(id))
       .filter((el): el is HTMLElement => el !== null);
@@ -153,13 +156,13 @@ export function MarketingNav() {
             key={l.href}
             href={l.href}
             className={`relative text-[13px] font-medium transition-colors ${
-              active === l.href ? "text-teal" : "text-t2 hover:text-t1"
+              isActive(l.href) ? "text-teal" : "text-t2 hover:text-t1"
             }`}
           >
             {l.label}
             <span
               className={`absolute -bottom-1 left-0 h-[2px] w-full origin-left rounded-full bg-teal transition-transform duration-200 ease-glass ${
-                active === l.href ? "scale-x-100" : "scale-x-0"
+                isActive(l.href) ? "scale-x-100" : "scale-x-0"
               }`}
             />
           </Link>
