@@ -13,6 +13,7 @@ from .routers import analytics as analytics_routes
 from .routers import flags as flags_routes
 from .routers import inbox as inbox_routes
 from .routers import public as public_routes
+from .routers import studio as studio_routes
 from .routers import user_digest as user_digest_routes
 from .auth import require_role
 from .route_inventory import iter_routes
@@ -114,6 +115,7 @@ app.include_router(oauth.router)
 app.include_router(admin.router)
 app.include_router(paper.router)
 app.include_router(committee.router)
+app.include_router(studio_routes.router)
 app.include_router(strategy.admin_router)
 app.include_router(strategy.me_router)
 app.include_router(me.router)

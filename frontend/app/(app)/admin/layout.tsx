@@ -16,6 +16,7 @@ const tabs = [
   { href: "/admin/orchestrations", label: "Orchestrations" },
   { href: "/admin/paper", label: "Paper Trading" },
   { href: "/admin/reports", label: "Reports" },
+  { href: "/admin/studio", label: "Studio" },
   { href: "/admin/observability", label: "Observability" },
 ];
 

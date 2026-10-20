@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from fastapi.concurrency import run_in_threadpool
 
-from .. import casebook, disclaimer, scoring
+from .. import casebook, disclaimer, scoring, studio
 from ..auth import require_role
 
 router = APIRouter(prefix="/api/public", tags=["public"])
@@ -99,3 +99,17 @@ async def casebook_post(day: str = Path(..., pattern=r"^\d{4}-\d{2}-\d{2}$")) ->
     if doc is None:
         raise HTTPException(status_code=404, detail="No committee review on that day")
     return doc
+
+
+@router.get("/recaps", dependencies=[Depends(require_role("public"))])
+async def recaps() -> dict[str, Any]:
+    """Weekly recap articles the owner has approved for the blog, newest first."""
+    return {"recaps": await run_in_threadpool(studio.published_recaps), "disclaimer": disclaimer.text()}
+
+
+@router.get("/recaps/{recap_id}", dependencies=[Depends(require_role("public"))])
+async def recap(recap_id: str = Path(..., pattern=r"^recap:\d{4}-W\d{2}$")) -> dict[str, Any]:
+    item = next((r for r in await run_in_threadpool(studio.published_recaps) if r["id"] == recap_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="No published recap with that id")
+    return {**item, "disclaimer": disclaimer.text()}

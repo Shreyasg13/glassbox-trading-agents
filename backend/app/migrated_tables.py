@@ -150,3 +150,20 @@ def include_object(obj, name, type_, reflected, compare_to):
     if type_ == "table":
         return name in migrated_metadata.tables
     return True
+
+
+# ---- Daily Studio (app/studio.py) ----
+# Share-ready drafts written from each day's Committee Casebook (one row per date+channel) and the weekly
+# recap article. Social drafts are never posted automatically; a recap reaches /blog only once approved.
+studio_drafts_table = Table(
+    "studio_drafts",
+    migrated_metadata,
+    Column("id", String, primary_key=True),  # "YYYY-MM-DD:linkedin" | "YYYY-MM-DD:x_thread" | "YYYY-MM-DD:caption" | "recap:YYYY-Www"
+    Column("kind", String, nullable=False),  # linkedin | x_thread | caption | recap
+    Column("date", String, nullable=False),  # the casebook day (recap: the week's last trading day)
+    Column("status", String, nullable=False),  # ready | pending | published | rejected
+    Column("payload_json", Text, nullable=False),
+    Column("created_at", String, nullable=False),
+    Column("updated_at", String, nullable=False),
+    Index("ix_studio_drafts_date", "date"),
+)

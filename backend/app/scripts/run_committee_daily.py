@@ -11,7 +11,8 @@ trades on these decisions:
 
     15 22 * * 1-5 cd /home/shrey/glassbox && /usr/bin/docker compose exec -T backend python -m app.scripts.run_committee_daily >> /home/shrey/glassbox/logs/committee_daily.log 2>&1
 
-Idempotent (one decision per date+symbol), so a holiday or a second run is a no-op.
+Idempotent (one decision per date+symbol), so a holiday or a second run is a no-op. After a run that
+reviewed something, the Daily Studio (app/studio.py) writes the day's share drafts for Admin -> Studio.
 Exit code: 0 = ran or nothing to do, 1 = could not run, or every model call failed.
 """
 from __future__ import annotations
@@ -22,7 +23,7 @@ import json
 import logging
 import sys
 
-from .. import committee_daily
+from .. import committee_daily, studio
 from ..logging_config import quiet_http_clients
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -46,6 +47,13 @@ def main(argv: list[str] | None = None) -> int:
     if result.get("ran") and not result.get("answered_total"):
         log.error("every committee run failed (no agent answered) -- check Admin -> Observability")
         return 1
+    if result.get("ran") and not args.dry_run:
+        # The Daily Studio drafts today's share posts (and Friday's recap) from the casebook just written.
+        # Drafts only: nothing is posted. A studio failure never fails the committee run.
+        try:
+            print(json.dumps({"studio": asyncio.run(studio.run())}, indent=2))
+        except Exception:  # noqa: BLE001
+            log.exception("daily studio failed; the committee run itself succeeded")
     return 0
 
 
