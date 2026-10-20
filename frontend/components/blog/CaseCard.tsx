@@ -1,4 +1,5 @@
 import type { CasebookCase } from "@/lib/types";
+import { VoteBar } from "@/components/blog/visuals";
 
 export const leanTone = (d: string | null | undefined) =>
   d === "BUY" ? "text-teal" : d === "SELL" ? "text-red" : d === "HOLD" ? "text-t2" : "text-t3";
@@ -22,14 +23,13 @@ export function CaseCard({ c }: { c: CasebookCase }) {
 
       <p className="mb-sp3 text-[12.5px] text-t2">
         <b className="text-t1">Why it came up:</b> {c.why}
-        {v && (
-          <>
-            {" "}· <b className="text-t1">Vote:</b> <span className="mono text-[12px]">
-              <span className="text-teal">BUY {v.BUY.toFixed(1)}</span> · <span className="text-red">SELL {v.SELL.toFixed(1)}</span> · HOLD {v.HOLD.toFixed(1)}
-            </span>
-          </>
-        )}
       </p>
+      {v && (
+        <div className="mb-sp3 max-w-[420px]">
+          <div className="mb-1 text-[11px] font-semibold text-t3">Confidence-weighted vote</div>
+          <VoteBar votes={v} />
+        </div>
+      )}
       {!c.quorum_ok && (
         <p className="mb-sp3 text-[12px] text-red">
           Only {c.answered} of {c.total} agents answered, below quorum, so this call was not acted on. Treat it as unreliable.

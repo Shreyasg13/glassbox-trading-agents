@@ -20,6 +20,7 @@ log = logging.getLogger("glassbox.casebook")
 
 HORIZON = 5  # trading days, the same horizon the track record scores
 BENCH = "SPY"
+SUMMARY_CAP = 260  # matches the cut in committee_daily._agent_rows
 _BOOK_TTL_S = 3600.0
 _book_cache: Dict[str, Any] = {"at": 0.0, "book": None}
 
@@ -50,6 +51,13 @@ def _outcome(book: Optional[Any], symbol: str, d: str, call: Optional[str]) -> O
             "excess": None if excess is None else round(excess, 4), "right": right}
 
 
+def _tidy(text: str) -> str:
+    """Summaries are stored cut at a fixed length (committee_daily._squash); end them on a word, with an ellipsis."""
+    if len(text) < SUMMARY_CAP:
+        return text
+    return text[: text.rfind(" ")].rstrip(",;:-") + "…" if " " in text else text
+
+
 def _safe_summary(text: str, symbol: str) -> Optional[str]:
     """None when the compliance filter would flag or block this text on a public page, or cannot run (fail closed)."""
     try:
@@ -66,7 +74,7 @@ def _case(r: Dict[str, Any], book: Optional[Any]) -> Dict[str, Any]:
         if not a.get("ok"):
             silent += 1
             continue
-        summary = _safe_summary(a.get("summary", ""), r["symbol"])
+        summary = _safe_summary(_tidy(a.get("summary", "")), r["symbol"])
         withheld += summary is None
         analysts.append({"agent": a.get("agent"), "type": a.get("type"), "lean": a.get("lean"),
                          "summary": summary, "confidence": a.get("confidence")})

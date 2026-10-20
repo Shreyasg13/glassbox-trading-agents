@@ -92,3 +92,11 @@ def test_backend_image_ships_config():
     from pathlib import Path
     dockerfile = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text(encoding="utf-8")
     assert "COPY config ./config" in dockerfile
+
+
+def test_truncated_summary_ends_on_a_word():
+    cut = ("word " * 51)[: casebook.SUMMARY_CAP - 5] + "signi"
+    assert len(cut) == casebook.SUMMARY_CAP
+    out = casebook._tidy(cut)
+    assert out.endswith("word…") and "signi" not in out
+    assert casebook._tidy("short and complete.") == "short and complete."
