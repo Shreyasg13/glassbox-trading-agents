@@ -15,7 +15,7 @@ export function MarketingFooter() {
             <a href="#" className="hover:text-t1">Privacy Policy</a>
             <a href="#" className="hover:text-t1">Terms of Service</a>
             <a href="#" className="hover:text-t1">Disclaimer</a>
-            <a href="/blog" className="hover:text-t1">Research</a>
+            <a href="/blog" className="hover:text-t1">Blog</a>
             <a href="#" className="hover:text-t1">Contact</a>
           </div>
         </div>
