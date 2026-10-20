@@ -15,13 +15,17 @@ export function MarketingFooter() {
             <a href="#" className="hover:text-t1">Privacy Policy</a>
             <a href="#" className="hover:text-t1">Terms of Service</a>
             <a href="#" className="hover:text-t1">Disclaimer</a>
-            <a href="#blog" className="hover:text-t1">Blog</a>
+            <a href="/blog" className="hover:text-t1">Research</a>
             <a href="#" className="hover:text-t1">Contact</a>
           </div>
         </div>
         <p className="text-[11.5px] leading-relaxed text-t4">
-          Glass Box is a financial research and data verification tool. It does not constitute
-          investment advice. All risk scores are for informational purposes only.
+          Glass Box is a free, non-commercial research preview: simulated paper trading on a fixed list of stocks and funds.
+          It does not constitute investment advice. All risk scores are for informational purposes only.
+        </p>
+        <p className="text-[11.5px] leading-relaxed text-t4">
+          GlassBox Research is an independent project, built on its author&apos;s own time and equipment, unpaid, and not
+          affiliated with or endorsed by any employer.
         </p>
       </div>
     </footer>

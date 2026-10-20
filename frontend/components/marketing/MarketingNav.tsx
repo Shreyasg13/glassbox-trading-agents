@@ -15,7 +15,7 @@ const links = [
   { href: "/#how-it-works", label: "How it Works" },
   { href: "/#strategy-lenses", label: "Strategy Lenses" },
   { href: "/#access", label: "Free access" },
-  { href: "/#blog", label: "Blog" },
+  { href: "/#blog", label: "Research" },
 ];
 
 export function MarketingNav() {
@@ -168,10 +168,13 @@ export function MarketingNav() {
 
       <div className="flex-1" />
 
-      <div className="hidden items-center gap-sp2 rounded-r4 border border-teal/20 px-sp3 py-1 text-[11px] font-semibold text-teal sm:flex">
+      <Link
+        href="/blog"
+        className="hidden items-center gap-sp2 rounded-r4 border border-teal/20 px-sp3 py-1 text-[11px] font-semibold text-teal hover:border-teal/40 sm:flex"
+      >
         <span className="live-dot" />
-        Accuracy this week: 99.2%
-      </div>
+        Every committee call, public
+      </Link>
 
       <ThemeToggle />
 
@@ -179,7 +182,7 @@ export function MarketingNav() {
         Sign In
       </Link>
       <Link href="/login" className="btn btn-primary">
-        Try Free · No card
+        Try it free
       </Link>
     </nav>
   );
