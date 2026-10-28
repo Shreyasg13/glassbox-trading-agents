@@ -832,6 +832,27 @@ def _tax_summary(acct: Dict[str, Any], last: float) -> Dict[str, Any]:
     }
 
 
+def since(acct: Dict[str, Any], d: str) -> Dict[str, Any]:
+    """The account as if it had started at the close before day d: the curve keeps that close
+    as its first point and its equity becomes start_cash, so every summary metric covers d onward."""
+    curve = acct["curve"]
+    before = [p for p in curve if p[0] < d]
+    window = before[-1:] + [p for p in curve if p[0] >= d]
+    if not window:
+        return acct
+    # shortcut: trades are capped at MAX_STORED_TRADES, so counts for a very early date can be low; store per-day totals if that matters
+    trades = [t for t in acct["trades"] if t["date"] >= d]
+    return {
+        **acct,
+        "curve": window,
+        "start_cash": window[0][1],
+        "trade_count": len(trades),
+        "cost_paid": sum(t["cost"] for t in trades),
+        "traded_notional": sum(t["shares"] * t["price"] for t in trades),
+        "inception": window[0][0],
+    }
+
+
 def summarize(acct: Dict[str, Any], bench: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Leaderboard row: total and live-only return, risk, cost, and alpha vs
     the account's benchmark over the same dates."""
@@ -855,6 +876,8 @@ def summarize(acct: Dict[str, Any], bench: Optional[Dict[str, Any]] = None) -> D
         "risk_level": acct.get("risk_level"),
         "profile": acct.get("profile") or {},
         "equity": round(last, 2),
+        "start_equity": round(acct["start_cash"], 2),
+        "profit": round(last - acct["start_cash"], 2),
         "total_return": total,
         "cagr": (last / acct["start_cash"]) ** (1 / years) - 1 if last > 0 and len(values) > 20 else None,
         "live_return": live_ret,
