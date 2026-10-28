@@ -32,6 +32,11 @@ function Leaderboard({ lb }: { lb: StrategyAccuracy["leaderboard"] }) {
       <td className="px-sp3 py-sp2">
         <div className="font-semibold text-t1">{a.agent}</div>
         <div className="text-[10px] text-t3">{a.type === "deterministic" ? "engine agent" : "AI analyst"}</div>
+        {a.type === "llm" && (
+          <div className="text-[10px] text-t3" title={Object.entries(a.models).map(([m, n]) => `${m}: ${n}`).join("\n")}>
+            {Object.keys(a.models)[0] ?? "—"} · answered {plainPct(a.answer_rate)} · failover {plainPct(a.failover_rate)}
+          </div>
+        )}
       </td>
       <td className="mono px-sp3 py-sp2 text-right text-t2">{a.answers}</td>
       <td className="mono px-sp3 py-sp2 text-right text-t2">{plainPct(a.agrees_with_committee)}</td>
@@ -40,13 +45,23 @@ function Leaderboard({ lb }: { lb: StrategyAccuracy["leaderboard"] }) {
       <td className="mono px-sp3 py-sp2 text-right text-t3">{a.directional_calls}</td>
       <td className="mono px-sp3 py-sp2 text-right text-t2">{a.hit_rate === null ? "—" : plainPct(a.hit_rate)}</td>
       <td className={`mono px-sp3 py-sp2 text-right font-semibold ${tone(a.mean_edge)}`}>{pct(a.mean_edge, 2)}</td>
+      <td className="mono px-sp3 py-sp2 text-right text-t2">
+        {a.pivotal}
+        {a.pivotal_edge !== null && <span className={`ml-1 ${tone(a.pivotal_edge)}`}>{pct(a.pivotal_edge, 2)}</span>}
+      </td>
+      <td
+        className="mono px-sp3 py-sp2 text-right text-t2"
+        title={a.calibration_n ? `said ${plainPct(a.mean_p_beat_spy)} on average, beat SPY ${plainPct(a.beat_rate)} of the time` : undefined}
+      >
+        {a.brier === null ? "—" : `${a.brier.toFixed(3)} (n=${a.calibration_n})`}
+      </td>
       <td className="px-sp3 py-sp2">{a.ranked ? <Tag>ranked</Tag> : <Tag warn>need {lb.min_ranked - a.directional_calls} more calls</Tag>}</td>
     </tr>
   );
   return (
     <>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[820px]">
+        <table className="w-full min-w-[1000px]">
           <thead>
             <tr>
               <Th>Agent</Th>
@@ -57,6 +72,8 @@ function Leaderboard({ lb }: { lb: StrategyAccuracy["leaderboard"] }) {
               <Th right>BUY/SELL calls</Th>
               <Th right>Hit rate</Th>
               <Th right>Edge per call</Th>
+              <Th right>Pivotal</Th>
+              <Th right>Calibration</Th>
               <Th>Status</Th>
             </tr>
           </thead>
