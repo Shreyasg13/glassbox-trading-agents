@@ -23,7 +23,7 @@ import json
 import logging
 import sys
 
-from .. import committee_daily, studio
+from .. import committee_daily, editorial, studio
 from ..logging_config import quiet_http_clients
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -54,6 +54,10 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"studio": asyncio.run(studio.run())}, indent=2))
         except Exception:  # noqa: BLE001
             log.exception("daily studio failed; the committee run itself succeeded")
+        try:  # the editorial board's pick for the blog card waits in Admin -> Studio for approval
+            print(json.dumps({"editorial": asyncio.run(editorial.run())}, indent=2))
+        except Exception:  # noqa: BLE001
+            log.exception("editorial board failed; the committee run itself succeeded")
     return 0
 
 

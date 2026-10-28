@@ -27,15 +27,15 @@ class PaperRunRequest(BaseModel):
 
 
 @router.get("/overview")
-async def overview():
+async def overview(since: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$")):
     """Every account (profiles, their policy benchmarks, controls) with return,
-    alpha, drawdown, Sharpe, cost and turnover -- the leaderboard."""
-    return await run_in_threadpool(paper_cycle.overview)
+    alpha, drawdown, Sharpe, cost and turnover -- the leaderboard. `since` measures it all from that date."""
+    return await run_in_threadpool(paper_cycle.overview, since)
 
 
 @router.get("/accounts/{account_id}")
-async def account(account_id: str, points: int = Query(400, ge=20, le=2000)):
-    detail = await run_in_threadpool(paper_cycle.account_detail, account_id, points)
+async def account(account_id: str, points: int = Query(400, ge=20, le=2000), since: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$")):
+    detail = await run_in_threadpool(paper_cycle.account_detail, account_id, points, since)
     if detail is None:
         raise HTTPException(status_code=404, detail="Account not found")
     return detail

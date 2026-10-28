@@ -144,7 +144,7 @@ export function emptyOrchestration(): OrchestrationConfig {
 
 // ---- Paper trading (admin master view) ----
 
-export type PaperAccountKind = "profile" | "benchmark" | "control";
+export type PaperAccountKind = "profile" | "benchmark" | "control" | "twin";
 export type CurveMode = "backtest" | "live";
 export type CurvePoint = [string, number, CurveMode];
 
@@ -157,6 +157,8 @@ export type PaperAccountSummary = {
   risk_level: string | null;
   profile: { archetype?: string; horizon_years?: number };
   equity: number;
+  start_equity: number;
+  profit: number;
   total_return: number;
   cagr: number | null;
   live_return: number | null;
@@ -641,7 +643,14 @@ export type GateHealth = {
 export type CasebookLean = "BUY" | "SELL" | "HOLD";
 export interface CasebookTeaser {
   date: string;
-  title: string;
+  title: string; // the editorial board's published pick, else the least routine thing that happened
+  kicker: "Overrule" | "Debate" | "Casebook";
+  dek: string;
+  excerpt: { agent: string; lean: CasebookLean; text: string } | null;
+  focus: string | null;
+  tags: string[];
+  editors_pick: boolean;
+  read_minutes: number;
   symbols: string[];
   decisions: Record<string, CasebookLean | null>;
   disagreements: string[];

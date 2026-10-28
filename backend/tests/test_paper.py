@@ -340,6 +340,24 @@ def test_summary_alpha_and_live_alpha_against_the_benchmark():
     assert s["live_days"] == N - 40
 
 
+def test_since_measures_return_profit_and_alpha_from_the_close_before_that_day():
+    book = book_of({"AAA": frame(close=[100.0 + i for i in range(N)])})
+    prof = paper.new_account("p", "p", "profile", "static_hold", {"AAA": 1.0}, invested=1.0, benchmark_id="b")
+    half = paper.new_account("b", "b", "benchmark", "static_hold", {"AAA": 1.0}, invested=0.5)
+    for x in (prof, half):
+        run(x, book, live_from=day(40))
+    d = day(30)
+    base = [p for p in prof["curve"] if p[0] < d][-1][1]
+    w = paper.since(prof, d)
+    s = paper.summarize(w, paper.since(half, d))
+    assert w["curve"][0][1] == base and w["curve"][1][0] == d and prof["curve"][0][0] < d  # original untouched
+    assert s["start_equity"] == pytest.approx(base, abs=0.01)
+    assert s["profit"] == pytest.approx(prof["curve"][-1][1] - base, abs=0.01)
+    assert s["total_return"] == pytest.approx(prof["curve"][-1][1] / base - 1)
+    assert s["trade_count"] == 0  # the static hold bought on day 1, before the window
+    assert s["alpha"] == pytest.approx(s["total_return"] - s["benchmark_return"])
+
+
 def test_summary_has_no_live_metrics_before_any_live_day():
     a = acct()
     run(a, book_of({"AAA": frame()}))

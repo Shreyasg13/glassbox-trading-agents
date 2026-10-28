@@ -34,7 +34,9 @@ function LeaderRow({ a, selected, onSelect }: { a: PaperAccountSummary; selected
         <div className="font-semibold text-t1">{a.name}</div>
         <div className="text-[10px] text-t3">{[a.profile?.archetype, a.risk_level].filter(Boolean).join(" · ") || a.strategy.replace("_", " ")}</div>
       </td>
+      <td className="mono px-sp3 py-sp2 text-right text-t3">{money(a.start_equity)}</td>
       <td className="mono px-sp3 py-sp2 text-right text-t1">{money(a.equity)}</td>
+      <td className={`mono px-sp3 py-sp2 text-right ${tone(a.profit)}`}>{`${a.profit < 0 ? "-" : "+"}${money(Math.abs(a.profit))}`}</td>
       <td className={`mono px-sp3 py-sp2 text-right font-semibold ${tone(a.total_return)}`}>{pct(a.total_return)}</td>
       <td className={`mono px-sp3 py-sp2 text-right ${tone(a.alpha)}`}>{pct(a.alpha)}</td>
       <td className={`mono px-sp3 py-sp2 text-right ${tone(a.live_return)}`}>{a.live_days ? `${pct(a.live_return)} · ${a.live_days}d` : "—"}</td>
@@ -55,11 +57,13 @@ function Leaderboard({ title, rows, selected, onSelect, note }: { title: string;
         {note && <p className="mt-1 text-[11px] text-t3">{note}</p>}
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px]">
+        <table className="w-full min-w-[920px]">
           <thead>
             <tr>
               <Th>Account</Th>
+              <Th right>Start</Th>
               <Th right>Equity</Th>
+              <Th right>Profit</Th>
               <Th right>Return</Th>
               <Th right>Alpha vs benchmark</Th>
               <Th right>Live</Th>
@@ -80,10 +84,10 @@ function Leaderboard({ title, rows, selected, onSelect, note }: { title: string;
   );
 }
 
-function AccountPanel({ id, token }: { id: string; token: string }) {
+function AccountPanel({ id, token, since }: { id: string; token: string; since: string }) {
   const { data, isLoading, error } = useQuery({
-    queryKey: ["paper-account", id],
-    queryFn: () => apiFetch<PaperAccountDetail>(`/api/admin/paper/accounts/${encodeURIComponent(id)}`, { token }),
+    queryKey: ["paper-account", id, since],
+    queryFn: () => apiFetch<PaperAccountDetail>(`/api/admin/paper/accounts/${encodeURIComponent(id)}${since ? `?since=${since}` : ""}`, { token }),
   });
   if (isLoading) return <p className="text-[13px] text-t3">Loading account…</p>;
   if (error || !data) return <p className="text-[13px] text-red">Couldn’t load this account.</p>;
@@ -223,10 +227,11 @@ export default function AdminPaperPage() {
   const { token } = useAuth();
   const qc = useQueryClient();
   const [selected, setSelected] = useState<string | null>(null);
+  const [since, setSince] = useState(""); // "" = whole history (backtest + live)
 
   const overview = useQuery({
-    queryKey: ["paper-overview"],
-    queryFn: () => apiFetch<PaperOverview>("/api/admin/paper/overview", { token: token ?? undefined }),
+    queryKey: ["paper-overview", since],
+    queryFn: () => apiFetch<PaperOverview>(`/api/admin/paper/overview${since ? `?since=${since}` : ""}`, { token: token ?? undefined }),
     enabled: !!token,
   });
 
@@ -240,6 +245,7 @@ export default function AdminPaperPage() {
   const profiles = accounts.filter((a) => a.kind === "profile");
   const benchmarks = accounts.filter((a) => a.kind === "benchmark");
   const controls = accounts.filter((a) => a.kind === "control");
+  const twins = accounts.filter((a) => a.kind === "twin");
   const meta = overview.data?.meta;
 
   useEffect(() => {
@@ -261,6 +267,26 @@ export default function AdminPaperPage() {
             <p className="mono mt-1 text-[11px] text-t3">
               Backtest from {meta.start} (in-sample) · live since {meta.live_from} (out-of-sample) · data through {meta.last_date ?? "—"}
             </p>
+          )}
+          {meta && (
+            <div className="mt-sp2 flex flex-wrap items-center gap-sp2 text-[12px] text-t2">
+              <label htmlFor="paper-since">Measure from</label>
+              <input
+                id="paper-since"
+                type="date"
+                value={since}
+                min={meta.start}
+                max={meta.last_date ?? undefined}
+                onChange={(e) => setSince(e.target.value)}
+                className="rounded-r1 border border-border bg-bg2 px-sp3 py-sp2 text-[13px] text-t1"
+              />
+              {[["All history", ""], ["Live start", meta.live_from]].map(([label, d]) => (
+                <button key={label} type="button" className={`btn ${since === d ? "btn-primary" : "btn-ghost"}`} onClick={() => setSince(d)}>
+                  {label}
+                </button>
+              ))}
+              {since && <span className="text-[11px] text-t3">Start = equity at the close before {since}; every column covers {since} onward.</span>}
+            </div>
           )}
         </div>
         <div className="flex flex-col items-end gap-1">
@@ -299,7 +325,14 @@ export default function AdminPaperPage() {
             onSelect={setSelected}
             note="Alpha = the profile’s return minus its policy benchmark: same weights, same rebalancing, signals ignored. Positive alpha means the signals helped."
           />
-          {selected && <AccountPanel id={selected} token={token} />}
+          {selected && <AccountPanel id={selected} token={token} since={since} />}
+          <Leaderboard
+            title="Committee-run twins"
+            rows={twins}
+            selected={selected}
+            onSelect={setSelected}
+            note="Same stocks and cash as each profile, but follows the AI Investment Committee where it reviewed a symbol. Alpha here = versus the engine-only profile, so it is what the committee added."
+          />
           <Leaderboard title="Controls" rows={controls} selected={selected} onSelect={setSelected} note="The placebo runs the engine on other symbols’ signals. If the engine can’t beat it, its signals carry no information." />
           <Leaderboard title="Policy benchmarks" rows={benchmarks} selected={selected} onSelect={setSelected} />
           <Scorecard token={token} />

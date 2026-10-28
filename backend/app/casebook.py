@@ -13,6 +13,8 @@ import logging
 import time
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from . import committee_daily, db, disclaimer, paper_cycle
 from .compliance import filter as cf
 
@@ -106,20 +108,61 @@ def _by_date() -> Dict[str, List[Dict[str, Any]]]:
     return days
 
 
-def posts(limit: int = 30) -> Dict[str, Any]:
-    """Newest first: one teaser per day, enough for the blog index and the homepage cards."""
+_posts_cache: Dict[str, Any] = {"at": 0.0, "key": None, "value": None}
+
+
+def _teasers() -> List[Dict[str, Any]]:
+    """Every day as a feed card: the least routine thing that happened as the title, a quote as the excerpt.
+    Built without prices (no outcomes needed here) and cached like the feed."""
     days = _by_date()
+    key = (sum(len(v) for v in days.values()), max(days, default=""))
+    if _posts_cache["value"] is not None and _posts_cache["key"] == key and time.monotonic() - _posts_cache["at"] < _FEED_TTL_S:
+        return _posts_cache["value"]
     out = []
-    for d in sorted(days, reverse=True)[:limit]:
-        runs = sorted(days[d], key=lambda r: r["symbol"])
-        split = [r["symbol"] for r in runs if r.get("agrees_with_engine") is False]
+    for d in sorted(days, reverse=True):
+        cases = [_case(r, None) for r in sorted(days[d], key=lambda r: r["symbol"])]
+        over = [c["symbol"] for c in cases if c["agrees_with_engine"] is False]
+        debate = most_debated(cases)
+        if over:
+            kicker, title = "Overrule", f"The AI committee overruled the engine on {', '.join(over)}"
+        elif debate:
+            s = _split(debate)
+            kicker, title = "Debate", f"{debate['symbol']} split the room: {s['BUY']} BUY, {s['SELL']} SELL, {s['HOLD']} HOLD"
+        else:
+            kicker, title = "Casebook", f"The committee reviewed {len(cases)} stocks"
+        quote = _quote(debate) if debate else next((q for c in cases if (q := _quote(c))), None)
+        words = sum(len((a["summary"] or "").split()) for c in cases for a in c["analysts"])
         out.append({
             "date": d,
-            "symbols": [r["symbol"] for r in runs],
-            "decisions": {r["symbol"]: r.get("decision") for r in runs},
-            "disagreements": split,
-            "title": f"Committee Casebook, {d}: " + ", ".join(r["symbol"] for r in runs),
+            "symbols": [c["symbol"] for c in cases],
+            "decisions": {c["symbol"]: c["decision"] for c in cases},
+            "disagreements": over,
+            "title": title,
+            "kicker": kicker,
+            "dek": _day_headline(cases),
+            "excerpt": quote,
+            "focus": over[0] if over else (debate["symbol"] if debate else None),
+            "read_minutes": max(1, round(words / 230)),
         })
+    _posts_cache.update({"value": out, "key": key, "at": time.monotonic()})
+    return out
+
+
+def posts(limit: int = 30) -> Dict[str, Any]:
+    """Newest first: one teaser per day for the blog index and the homepage. A day the editorial board's
+    pick was published for (Admin -> Studio) carries that title, dek and tags instead of the template's."""
+    from . import editorial  # editorial imports this module
+
+    try:
+        picks = editorial.published()
+    except SQLAlchemyError:  # no studio_drafts table (migration 0009 not run): template titles only
+        log.exception("casebook: editorial picks unavailable")
+        picks = {}
+    out = []
+    for t in _teasers()[:limit]:
+        pick = picks.get(t["date"])
+        out.append({**t, "title": pick["title"], "dek": pick["dek"], "tags": pick["tags"] or [], "editors_pick": (pick["promote"] or 0) >= 4}
+                   if pick else {**t, "tags": [], "editors_pick": False})
     return {"posts": out, "disclaimer": disclaimer.text()}
 
 
@@ -157,6 +200,16 @@ def _day_headline(cases: List[Dict[str, Any]]) -> str:
 
 def _split(c: Dict[str, Any]) -> Dict[str, int]:
     return {lean: sum(1 for a in c["analysts"] if a["lean"] == lean and a["type"] == "llm") for lean in _LEANS}
+
+
+def _sides(c: Dict[str, Any]) -> int:
+    return sum(1 for v in _split(c).values() if v)
+
+
+def most_debated(cases: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The case whose LLM analysts split across the most sides, most evenly (None if every room agreed)."""
+    split = [c for c in cases if _sides(c) >= 2]
+    return max(split, key=lambda c: (_sides(c), -max(_split(c).values()))) if split else None
 
 
 def _quote(c: Dict[str, Any], lean: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -199,9 +252,9 @@ def _build_feed() -> Dict[str, Any]:
                   "opinions": {lean: sum(1 for c in today for a in c["analysts"] if a["type"] == "llm" and a["lean"] == lean) for lean in _LEANS}})
 
     # Most debated stock of the recent days: the case whose LLM analysts split across the most sides, most evenly.
-    debates = [(d, c) for d in recent for c in full[d] if sum(1 for v in _split(c).values() if v) >= 2]
+    debates = [(d, c) for d in recent for c in full[d] if _sides(c) >= 2]
     if debates:
-        d, c = max(debates, key=lambda dc: (sum(1 for v in _split(dc[1]).values() if v), -max(_split(dc[1]).values()), dc[0]))
+        d, c = max(debates, key=lambda dc: (_sides(dc[1]), -max(_split(dc[1]).values()), dc[0]))
         sides = sorted((lean for lean, v in _split(c).items() if v), key=lambda lean: -_split(c)[lean])[:2]
         cards.append({"type": "debate", "date": d, "symbol": c["symbol"], "href": f"/blog/{d}#{c['symbol']}", "split": _split(c),
                       "decision": c["decision"], "quotes": [q for q in (_quote(c, s) for s in sides) if q]})

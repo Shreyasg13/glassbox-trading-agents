@@ -7,9 +7,9 @@ from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from .. import db, studio
+from .. import casebook, db, editorial, studio
 from ..auth import TokenPayload, require_admin
 from ..rate_limit import rate_limit_admin_mutations
 
@@ -22,6 +22,11 @@ router = APIRouter(
 
 class RunRequest(BaseModel):
     recap: bool = False
+
+
+class EditorialRequest(BaseModel):
+    date: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    all_days: bool = False  # backfill: every day without a published pick
 
 
 class StatusRequest(BaseModel):
@@ -41,10 +46,19 @@ async def run(body: RunRequest, user: TokenPayload = Depends(require_admin)) -> 
     return result
 
 
+@router.post("/editorial/run")
+async def run_editorial(body: EditorialRequest, user: TokenPayload = Depends(require_admin)) -> dict[str, Any]:
+    """Ask the editorial board for a day's title, dek and tags (default: the latest day). Picks wait here for approval."""
+    days = sorted(await run_in_threadpool(casebook._by_date), reverse=True) if body.all_days else [body.date]
+    results = [await editorial.run(d) for d in days]
+    db.log_audit(user.sub, "studio.editorial.run", "studio", body.date, {"all_days": body.all_days, "days": len(results)})
+    return {"results": results}
+
+
 @router.post("/drafts/{item_id}/status")
 async def set_status(item_id: str, body: StatusRequest, user: TokenPayload = Depends(require_admin)) -> dict[str, Any]:
     item = await run_in_threadpool(studio.set_status, item_id, body.status)
     if item is None:
-        raise HTTPException(status_code=404, detail="No recap with that id")
-    db.log_audit(user.sub, f"studio.recap.{body.status}", "studio", item_id, {})
+        raise HTTPException(status_code=404, detail="No recap or editorial pick with that id")
+    db.log_audit(user.sub, f"studio.{item['kind']}.{body.status}", "studio", item_id, {})
     return item

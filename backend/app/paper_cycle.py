@@ -445,20 +445,25 @@ def downsample(curve: List[List[Any]], max_points: int) -> List[List[Any]]:
     return [curve[i] for i in idx]
 
 
-def overview() -> Dict[str, Any]:
+def overview(since: Optional[str] = None) -> Dict[str, Any]:
     meta = db.get_paper_meta()
     accounts = db.list_paper_accounts()
+    if since:
+        accounts = [paper.since(a, since) for a in accounts]
     by_id = {a["id"]: a for a in accounts}
     rows = [paper.summarize(a, by_id.get(a.get("benchmark_id") or "")) for a in accounts]
     rows.sort(key=lambda r: (r["kind"] != "profile", -(r["total_return"] or 0)))
     return {"initialised": meta is not None, "meta": meta, "accounts": rows}
 
 
-def account_detail(account_id: str, max_points: int = 400) -> Optional[Dict[str, Any]]:
+def account_detail(account_id: str, max_points: int = 400, since: Optional[str] = None) -> Optional[Dict[str, Any]]:
     acct = db.get_paper_account(account_id)
     if acct is None:
         return None
     bench = db.get_paper_account(acct["benchmark_id"]) if acct.get("benchmark_id") else None
+    if since:
+        acct = paper.since(acct, since)
+        bench = paper.since(bench, since) if bench else None
     curve = downsample(acct["curve"], max_points)
     keep = {p[0] for p in curve}
     return {
