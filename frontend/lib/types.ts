@@ -418,6 +418,15 @@ export type LeaderRow = {
   hit_rate: number | null;
   mean_edge: number | null;
   ranked: boolean;
+  answer_rate: number;
+  failover_rate: number;
+  models: Record<string, number>;
+  pivotal: number;
+  pivotal_edge: number | null;
+  calibration_n: number;
+  brier: number | null;
+  mean_p_beat_spy: number | null;
+  beat_rate: number | null;
 };
 export type StrategyAccuracy = {
   signal: PaperScorecard;

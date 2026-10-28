@@ -59,6 +59,28 @@ def test_the_leaderboard_scores_directional_calls_and_ignores_holds_failures_and
     assert set(order[:2]) == {"Bull", "Bear"} and order[:2] == sorted(order[:2], key=lambda n: -rows[n]["mean_edge"])  # ranked first, best edge first
 
 
+def test_the_leaderboard_finds_pivotal_agents_scores_calibration_and_counts_failures():
+    book = make_book(N_FULL)
+    d = day(20)
+    fwd = strategy._fwd_return(book, "AAA", d, 5)
+    spy = strategy._fwd_return(book, "SPY", d, 5)
+    assert fwd is not None and spy is not None and fwd != spy
+    swing = dict(agent("Swing", "BUY", confidence=80), structured=True, p_beat_spy=70, model="m1")
+    runs = [
+        {"symbol": "AAA", "date": d, "quorum_ok": True, "decision": "BUY", "engine_signal": "HOLD", "engine_confidence": 20,
+         # votes: BUY 0.8 + 0.5 = 1.3 vs HOLD 0.5 + 0.2 = 0.7 -> without Swing HOLD wins (0.5 < 0.7), without Echo BUY still wins (0.8 > 0.7)
+         "agents": [swing, agent("Echo", "BUY"), agent("Fence", "HOLD"), agent("Eng", "HOLD", "deterministic"), dict(agent("Down", None, ok=False), failed_over_from="gemini")]},
+        {"symbol": "AAA", "date": d, "quorum_ok": True, "decision": "SELL", "engine_signal": "HOLD", "agents": [agent("Swing", "BUY")]},  # stored votes don't reproduce: no pivots
+    ]
+    rows = {r["agent"]: r for r in strategy.agent_leaderboard(book, runs, horizon=5, min_ranked=1)["agents"]}
+    assert rows["Swing"]["pivotal"] == 1 and rows["Swing"]["pivotal_edge"] == pytest.approx(fwd)  # BUY instead of HOLD
+    assert rows["Echo"]["pivotal"] == 0 and rows["Echo"]["pivotal_edge"] is None
+    beat = float(fwd > spy)
+    assert rows["Swing"]["calibration_n"] == 1 and rows["Swing"]["brier"] == pytest.approx((0.7 - beat) ** 2) and rows["Swing"]["beat_rate"] == beat
+    assert rows["Swing"]["models"] == {"m1": 1} and rows["Echo"]["brier"] is None and rows["Echo"]["answer_rate"] == 1.0
+    assert "Down" not in rows  # it never answered, so it has no row
+
+
 def test_nobody_is_ranked_until_they_have_enough_scored_calls():
     runs = [{"symbol": "AAA", "date": day(20), "quorum_ok": True, "decision": "BUY", "engine_signal": "HOLD", "agents": [agent("Bull", "BUY")]}]
     lb = strategy.agent_leaderboard(make_book(N_FULL), runs)  # default MIN_RANKED = 30

@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import threading
 from bisect import bisect_left
+from collections import Counter
 from typing import Any, Dict, List, Optional
 
-from . import associations, committee_daily, data_source as ds, db, free_data, panel as panel_mod, paper, paper_cycle, pipeline, risk, snapshots
+from . import associations, committee_daily, data_source as ds, db, free_data, orchestration, panel as panel_mod, paper, paper_cycle, pipeline, risk, snapshots
 
 MIN_RANKED = 30  # scored directional calls before an agent may be ranked
 CONTROL_ORDER = ["ctl_engine", "ctl_taxaware", "ctl_trend", "ctl_voltarget", "ctl_committee", "ctl_placebo", "ctl_spy", "ctl_equal", "ctl_cash", "ctl_engine_ira", "ctl_trend_ira", "ctl_voltarget_ira", "ctl_placebo_ira"]
@@ -75,21 +76,76 @@ def _mean(xs: List[float]) -> Optional[float]:
     return sum(xs) / len(xs) if xs else None
 
 
+def _vote_weight(a: Dict[str, Any], run: Dict[str, Any]) -> float:
+    """The weight orchestration._reduce_committee_vote gave this stored answer."""
+    if a.get("type") == "deterministic":
+        return (run.get("engine_confidence") or 50) / 100
+    if a.get("structured") and a.get("confidence") is not None:
+        return min(orchestration.VIEW_WEIGHT_MAX, max(orchestration.VIEW_WEIGHT_MIN, a["confidence"] / 100))
+    return 0.5
+
+
+def _winner(votes: Dict[str, float]) -> str:
+    return max(votes, key=votes.get) if any(votes.values()) else "HOLD"
+
+
+def _signed(lean: str, fwd: float) -> float:
+    return fwd if lean == "BUY" else -fwd if lean == "SELL" else 0.0
+
+
+def _leave_one_out(run: Dict[str, Any]) -> Dict[str, str]:
+    """agent -> the decision the vote would have reached without it, for the agents whose absence
+    changes the call. Empty if the stored votes can't be reproduced (an older run format)."""
+    ok = [(a, _vote_weight(a, run)) for a in run.get("agents", []) if a.get("ok") and a.get("lean") in ("BUY", "SELL", "HOLD")]
+    votes = {"BUY": 0.0, "SELL": 0.0, "HOLD": 0.0}
+    for a, w in ok:
+        votes[a["lean"]] += w
+    if _winner(votes) != run.get("decision"):
+        return {}
+    out = {}
+    for a, w in ok:
+        alt = _winner({**votes, a["lean"]: votes[a["lean"]] - w})
+        if alt != run["decision"]:
+            out[a["agent"]] = alt
+    return out
+
+
 def agent_leaderboard(book: paper.PriceBook, runs: List[Dict[str, Any]], horizon: int = 5, min_ranked: int = MIN_RANKED) -> Dict[str, Any]:
     """Per committee member: how often it sided with the final call and with the engine, how
     sure it says it is, and -- once enough decisions have aged -- whether its BUY/SELL calls
     made money. `mean_edge` is the average forward return signed by the call (a BUY is right
     when the stock rises, a SELL when it falls), entered at the next close like the paper
     trader. HOLD is a non-call and is not scored for direction."""
+    seen: Dict[str, Counter] = {}
+    models: Dict[str, Counter] = {}
+    for r in runs:
+        for a in r.get("agents", []):
+            c = seen.setdefault(a["agent"], Counter())
+            c["seen"] += 1
+            c["ok"] += bool(a.get("ok"))
+            c["failed_over"] += bool(a.get("failed_over_from"))
+            if a.get("ok") and a.get("model"):
+                models.setdefault(a["agent"], Counter())[a["model"]] += 1
     acc: Dict[str, Dict[str, Any]] = {}
     for r in runs:
         if not r.get("quorum_ok"):
             continue
         fwd = _fwd_return(book, r["symbol"], r["date"], horizon)
+        spy = _fwd_return(book, "SPY", r["date"], horizon)
+        pivots = _leave_one_out(r)
         for a in r.get("agents", []):
             if not a.get("ok"):
                 continue
-            row = acc.setdefault(a["agent"], {"type": a.get("type"), "answers": 0, "with_committee": 0, "with_engine": 0, "confs": [], "edges": []})
+            row = acc.setdefault(a["agent"], {"type": a.get("type"), "answers": 0, "with_committee": 0, "with_engine": 0, "confs": [], "edges": [], "pivotal": 0, "pivot_edges": [], "briers": [], "ps": [], "beats": []})
+            if a["agent"] in pivots:
+                row["pivotal"] += 1
+                if fwd is not None:  # what the call gained (or lost) because this agent voted
+                    row["pivot_edges"].append(_signed(r["decision"], fwd) - _signed(pivots[a["agent"]], fwd))
+            if a.get("p_beat_spy") is not None and fwd is not None and spy is not None:
+                p, beat = a["p_beat_spy"] / 100, float(fwd > spy)
+                row["briers"].append((p - beat) ** 2)
+                row["ps"].append(p)
+                row["beats"].append(beat)
             row["answers"] += 1
             row["with_committee"] += a.get("lean") == r.get("decision")
             row["with_engine"] += a.get("lean") == r.get("engine_signal")
@@ -112,6 +168,15 @@ def agent_leaderboard(book: paper.PriceBook, runs: List[Dict[str, Any]], horizon
                 "hit_rate": (sum(1 for e in row["edges"] if e > 0) / n) if n else None,
                 "mean_edge": _mean(row["edges"]),
                 "ranked": n >= min_ranked,
+                "answer_rate": seen[name]["ok"] / seen[name]["seen"],
+                "failover_rate": seen[name]["failed_over"] / seen[name]["seen"],
+                "models": dict(models.get(name, Counter()).most_common(3)),
+                "pivotal": row["pivotal"],
+                "pivotal_edge": _mean(row["pivot_edges"]),
+                "calibration_n": len(row["briers"]),
+                "brier": _mean(row["briers"]),
+                "mean_p_beat_spy": _mean(row["ps"]),
+                "beat_rate": _mean(row["beats"]),
             }
         )
     out.sort(key=lambda r: (0, -(r["mean_edge"] or 0.0)) if r["ranked"] else (1, -r["answers"]))
@@ -119,7 +184,11 @@ def agent_leaderboard(book: paper.PriceBook, runs: List[Dict[str, Any]], horizon
         "horizon": horizon,
         "min_ranked": min_ranked,
         "agents": out,
-        "note": f"An agent is ranked only after {min_ranked} scored BUY/SELL calls at a {horizon}-day horizon; until then the columns are context, not a verdict.",
+        "note": (
+            f"An agent is ranked only after {min_ranked} scored BUY/SELL calls at a {horizon}-day horizon; until then the columns are context, not a verdict. "
+            "Pivotal = decisions that would have gone the other way without this agent, and what that changed in forward return. "
+            "Brier = how well its 'chance of beating SPY' matched what happened (0 is perfect, 0.25 is a coin flip)."
+        ),
     }
 
 
