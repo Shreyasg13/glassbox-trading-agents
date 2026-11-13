@@ -21,6 +21,8 @@ import html
 import logging
 import os
 import smtplib
+import urllib.parse
+import urllib.request
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Dict, List, Optional
@@ -40,6 +42,13 @@ def smtp_config() -> Optional[Dict[str, Any]]:
     if not (user and pw and to):
         return None
     return {"host": os.environ.get("DIGEST_SMTP_HOST", SMTP_HOST_DEFAULT), "port": int(os.environ.get("DIGEST_SMTP_PORT", SMTP_PORT_DEFAULT)), "user": user, "password": pw, "to": to}
+
+
+def whatsapp_config() -> Optional[Dict[str, str]]:
+    """CallMeBot (free, personal use: it only messages the number that registered the key).
+    None unless both values are set -- never guess a credential."""
+    phone, key = os.environ.get("CALLMEBOT_PHONE"), os.environ.get("CALLMEBOT_APIKEY")
+    return {"phone": phone, "apikey": key} if phone and key else None
 
 
 # ---------------------------------------------------------------------- content --
@@ -187,6 +196,28 @@ def render_html(d: Dict[str, Any]) -> str:
 </body></html>"""
 
 
+WHATSAPP_MAX_DECISIONS = 15  # keeps the message short enough for CallMeBot's GET URL
+
+
+def render_text(d: Dict[str, Any]) -> str:
+    """Short plain-text version for WhatsApp: headline facts + a link to the full page."""
+    pipe = d["pipeline"]
+    lines = [f"GlassBox · Daily Committee Digest · {d['date'] or 'n/a'}", f"Pipeline: {pipe['status'] or 'unknown'}"]
+    if not d["data_quality"].get("ok"):
+        lines.append("⚠ Data quality warning")
+    decisions = d["decisions"]
+    if decisions:
+        lines += ["", "Committee calls:"]
+        for r in decisions[:WHATSAPP_MAX_DECISIONS]:
+            lines.append(f"• {r['symbol']}: {r['decision'] or '–'} (engine {r['engine_signal'] or '–'}, {r['answered']}/{r['total']})" + (" ⚠ gated" if r["gated"] else ""))
+        if len(decisions) > WHATSAPP_MAX_DECISIONS:
+            lines.append(f"…and {len(decisions) - WHATSAPP_MAX_DECISIONS} more")
+    else:
+        lines.append("No symbols reviewed today.")
+    lines += ["", disclaimer.text(), f"{LIVE_SITE}/admin/strategy"]
+    return "\n".join(lines)
+
+
 # ------------------------------------------------------------------------- send --
 
 
@@ -203,11 +234,23 @@ def send_email(subject: str, html: str, cfg: Dict[str, Any], headers: Optional[D
         s.sendmail(cfg["user"], [cfg["to"]], msg.as_string())
 
 
-def run(now=None, book=None, runner=None) -> Dict[str, Any]:
-    """The pipeline stage entry point. Never raises: a bad SMTP config or a rendering surprise is
-    reported, not fatal (see the module docstring)."""
-    from . import flags, publish
+def send_whatsapp(text: str, cfg: Dict[str, str]) -> None:
+    url = "https://api.callmebot.com/whatsapp.php?" + urllib.parse.urlencode({"phone": cfg["phone"], "text": text, "apikey": cfg["apikey"]})
+    with urllib.request.urlopen(url, timeout=30) as resp:
+        body = resp.read(500).decode("utf-8", "replace")
+    # shortcut: CallMeBot can answer 200 on failure; only the bad-key text is caught. Move to the WhatsApp Cloud API
+    # if this ever goes to subscribers.
+    if "apikey is invalid" in body.lower():
+        raise ValueError("CallMeBot rejected the API key")
 
+
+def run(now=None, book=None, runner=None, wa_runner=None) -> Dict[str, Any]:
+    """The pipeline stage entry point. Never raises: a bad SMTP config or a rendering surprise is
+    reported, not fatal (see the module docstring). Email and WhatsApp are independent: either,
+    both or neither can be configured, and one failing never stops the other."""
+    from . import flags
+
+    # output.email gates the whole admin digest, WhatsApp copy included.
     if not flags.flag("output.email"):
         return {"ok": True, "sent": False, "detail": "disabled: the output.email flag is off"}
     try:
@@ -215,11 +258,39 @@ def run(now=None, book=None, runner=None) -> Dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 -- a report failing to build must not fail the pipeline
         log.warning("could not build the daily digest: %s", exc)
         return {"ok": False, "detail": f"build failed: {type(exc).__name__}: {exc}"}
-    cfg = smtp_config()
-    if not cfg:
+    cfg, wa = smtp_config(), whatsapp_config()
+    if not cfg and not wa:
         # Not configured is not a failure -- same convention as SEC/insiders without SEC_USER_AGENT:
         # an optional, not-yet-turned-on extra must never mark the whole pipeline day "partial".
-        return {"ok": True, "sent": False, "detail": "not configured: set DIGEST_SMTP_USER, DIGEST_SMTP_APP_PASSWORD, DIGEST_TO_EMAIL"}
+        return {"ok": True, "sent": False, "detail": "not configured: set DIGEST_SMTP_USER, DIGEST_SMTP_APP_PASSWORD, DIGEST_TO_EMAIL (or CALLMEBOT_PHONE, CALLMEBOT_APIKEY)"}
+    results = []
+    if cfg:
+        results.append(_send_email_digest(d, cfg, runner))
+    if wa:
+        results.append(_send_whatsapp_digest(d, wa, wa_runner))
+    if len(results) == 1:
+        return results[0]
+    return {"ok": all(r["ok"] for r in results), "sent": any(r["sent"] for r in results), "detail": "; ".join(r["detail"] for r in results)}
+
+
+def _send_whatsapp_digest(d: Dict[str, Any], cfg: Dict[str, str], runner=None) -> Dict[str, Any]:
+    from . import publish
+
+    try:
+        result = publish.publish_simple(channel="admin_digest", text=render_text(d), content_ref=f"admin_digest_whatsapp:{d.get('date', 'unknown')}")
+        if not result.allowed:
+            return {"ok": True, "sent": False, "detail": "whatsapp held by publish (enforce mode)"}
+        (runner or send_whatsapp)(result.text, cfg)
+    except Exception as exc:  # noqa: BLE001 -- sending is a nicety; never let it fail the pipeline
+        # type only: an HTTP error's text could carry the key-bearing URL into the logs
+        log.warning("could not send the WhatsApp digest: %s", type(exc).__name__)
+        return {"ok": False, "sent": False, "detail": f"whatsapp: {type(exc).__name__}"}
+    return {"ok": True, "sent": True, "detail": "whatsapp sent"}
+
+
+def _send_email_digest(d: Dict[str, Any], cfg: Dict[str, Any], runner=None) -> Dict[str, Any]:
+    from . import publish
+
     try:
         html = render_html(d)
         content_ref = f"admin_digest:{d.get('date', 'unknown')}"
