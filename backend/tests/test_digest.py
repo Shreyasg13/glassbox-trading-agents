@@ -146,3 +146,84 @@ def test_run_never_raises_when_gathering_fails(monkeypatch):
     monkeypatch.setattr(digest, "gather", boom)
     out = digest.run()
     assert out["ok"] is False and "build failed" in out["detail"]
+
+
+# ---------------------------------------------------------------------- whatsapp --
+
+
+def _email_env(monkeypatch, on=True):
+    for k in ("DIGEST_SMTP_USER", "DIGEST_SMTP_APP_PASSWORD", "DIGEST_TO_EMAIL"):
+        monkeypatch.delenv(k, raising=False)
+    if on:
+        monkeypatch.setenv("DIGEST_SMTP_USER", "bot@example.com")
+        monkeypatch.setenv("DIGEST_SMTP_APP_PASSWORD", "x" * 16)
+        monkeypatch.setenv("DIGEST_TO_EMAIL", "admin@example.com")
+
+
+def _wa_env(monkeypatch, on=True):
+    monkeypatch.delenv("CALLMEBOT_PHONE", raising=False)
+    monkeypatch.delenv("CALLMEBOT_APIKEY", raising=False)
+    if on:
+        monkeypatch.setenv("CALLMEBOT_PHONE", "+15551234567")
+        monkeypatch.setenv("CALLMEBOT_APIKEY", "123456")
+
+
+def test_whatsapp_config_needs_both_values(monkeypatch):
+    _wa_env(monkeypatch, on=False)
+    assert digest.whatsapp_config() is None
+    monkeypatch.setenv("CALLMEBOT_PHONE", "+15551234567")
+    assert digest.whatsapp_config() is None
+    monkeypatch.setenv("CALLMEBOT_APIKEY", "123456")
+    assert digest.whatsapp_config() == {"phone": "+15551234567", "apikey": "123456"}
+
+
+def test_render_text_is_short_and_flags_gated_calls():
+    rows = [run_row(f"S{i:02d}") for i in range(20)] + [run_row("ZZZ", gate={"reason": "risk"})]
+    text = digest.render_text(digest.build_digest(overview(), FREE_STATUS, BOARD_INSUFFICIENT, rows))
+    assert text.startswith("GlassBox · Daily Committee Digest · 2026-09-22")
+    assert "S00: BUY" in text and "…and 6 more" in text and "/admin/strategy" in text
+    assert "<" not in text  # plain text, no HTML
+    assert len(text) < 1500
+
+
+def test_run_sends_whatsapp_only_when_email_is_not_configured(monkeypatch):
+    monkeypatch.setattr(digest, "gather", lambda book=None: digest.build_digest(overview(), FREE_STATUS, BOARD_INSUFFICIENT, [run_row()]))
+    _email_env(monkeypatch, on=False)
+    _wa_env(monkeypatch)
+    seen = {}
+    out = digest.run(wa_runner=lambda text, cfg: seen.update(text=text, cfg=cfg))
+    assert out == {"ok": True, "sent": True, "detail": "whatsapp sent"}
+    assert "AAPL: BUY" in seen["text"] and seen["cfg"]["phone"] == "+15551234567"
+
+
+def test_run_whatsapp_failure_does_not_stop_email_and_hides_the_key(monkeypatch):
+    monkeypatch.setattr(digest, "gather", lambda book=None: digest.build_digest(overview(), FREE_STATUS, BOARD_INSUFFICIENT, []))
+    _email_env(monkeypatch)
+    _wa_env(monkeypatch)
+    emailed = []
+
+    def boom(text, cfg):
+        raise ConnectionError(f"https://api.callmebot.com/whatsapp.php?apikey={cfg['apikey']}")
+
+    out = digest.run(runner=lambda s, h, c: emailed.append(s), wa_runner=boom)
+    assert emailed and out["ok"] is False and out["sent"] is True
+    assert "sent to admin@example.com" in out["detail"] and "whatsapp: ConnectionError" in out["detail"]
+    assert "123456" not in out["detail"]
+
+
+def test_send_whatsapp_raises_on_a_rejected_key(monkeypatch):
+    class Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self, n):
+            return b"APIKey is invalid. Please check it."
+
+    urls = []
+    monkeypatch.setattr(digest.urllib.request, "urlopen", lambda url, timeout: urls.append(url) or Resp())
+    with pytest.raises(ValueError):
+        digest.send_whatsapp("hi there", {"phone": "+15551234567", "apikey": "123456"})
+    assert urls[0].startswith("https://api.callmebot.com/whatsapp.php?") and "text=hi+there" in urls[0]
