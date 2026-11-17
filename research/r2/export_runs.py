@@ -98,6 +98,9 @@ def export_runs(db_url, cutoff, out_dir):
 
     cutoff = date.fromisoformat(cutoff)
     out = Path(out_dir)
+    # A used directory would keep runs this export skipped or excluded (load_runs reads every file).
+    if out.exists() and any(out.iterdir()):
+        raise ValueError(f"{out} is not empty; export into a fresh directory")
     out.mkdir(parents=True, exist_ok=True)
     engine = readonly_engine(db_url)
     report = {"exported": 0, "skipped": 0, "reasons": {}, "run_time_source": {"run_time": 0, "created_at": 0}}

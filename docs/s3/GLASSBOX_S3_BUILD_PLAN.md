@@ -320,6 +320,7 @@ ADMIN   GET  /admin/flags      POST /admin/flags/{key}
 
 ## 7. Status board
 
+- [x] G3d R2 E5 targets only baseline-fresh claims; design count and baseline-relative detection covered by synthetic tests
 - [x] G3c R2 independent controls, pooled catch rates and read-only archived-run exporter (synthetic validation)
 - [x] G3b Offline R2 data-set builder, gate detector and freeze manifest (synthetic validation)
 - [x] T0 Repo discovery
@@ -375,6 +376,7 @@ ADMIN   GET  /admin/flags      POST /admin/flags/{key}
 
 | Date | Task | Summary | PR/commit |
 |---|---|---|---|
+| 2026-10-16 | G3d | Filter E5 eligibility with the gate's staleness check; test fresh-only targeting, shortages and new baseline-relative flags; product code unchanged | branch `research/r2-g3d` |
 | 2026-10-16 | G3b | Offline deterministic R2 builder, capped sampling, exclusion counts, freeze hashes, gate results CLI and synthetic tests; production gate unchanged | branch `research/r2-g3b` |
 | 2026-10-16 | G3c | One C0 per run, independent-input bounds, pooled rates and read-only exporter reusing production assembly; skips archives missing original run_time | branch `research/r2-g3c` |
 | 2026-09-26 | T0 | Repo map filled, current flow traced, output channels listed, surprises recorded, real committee output saved, execution plan written | PR `s3/T0-discovery` |

@@ -30,10 +30,12 @@ def run(instances, baseline=None) -> list[dict]:
         checks = gate.verify_run(instance["inputs"])
         statuses = {check.status for check in checks}
         status = "fail" if "fail" in statuses else "warn" if "warn" in statuses else "pass"
+        if baseline is not None and instance["source_run_id"] not in baseline:
+            raise ValueError(f"no baseline for source run {instance['source_run_id']}")
         new = flags(checks) - (baseline or {}).get(instance["source_run_id"], set())
         results.append({key: value for key, value in instance.items() if key != "inputs"} | {
             "status": status, "detected": bool(new), "primary_detected": any(f[2] == "fail" for f in new),
-            "new_flags": sorted(map(list, new)), "baseline_used": baseline is not None,
+            "new_flags": sorted((list(f) for f in new), key=lambda f: ["" if x is None else str(x) for x in f]), "baseline_used": baseline is not None,
             "matches_expected": status == instance["expected_status"],
             "checks": [asdict(check) for check in checks],
         })

@@ -123,3 +123,12 @@ def test_missing_database_is_not_created(tmp_path):
     finally:
         engine.dispose()
     assert not database.exists()
+
+
+def test_export_refuses_a_used_directory(archive, tmp_path):
+    db, _, _ = archive
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "stale-run.json").write_text("{}")  # left by an earlier export with a later cutoff
+    with pytest.raises(ValueError, match="not empty"):
+        export_runs.export_runs(str(db.engine.url), "2027-01-01", out)
