@@ -145,7 +145,9 @@ def _look_ahead(inp, rng):
 
 def _stale(inp, rng):
     windows = inp.get("windows") or vconfig.DEFAULT_WINDOWS
-    c = _pick(rng, [c for c in _snap_claims(inp) if c.get("source") in windows])
+    c = _pick(rng, [c for c in _snap_claims(inp)
+                    if gate.check_staleness(c, inp["snapshots_by_claim_id"][c["id"]][0],
+                                            inp["run_date"], windows).status == "pass"])
     meta, _ = _own_snapshot(inp, c["id"])
     old = meta.get("as_of")
     # Calendar days beyond the window; for trading-day sources 3x covers weekends.
