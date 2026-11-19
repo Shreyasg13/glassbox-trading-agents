@@ -16,5 +16,5 @@ yfinance==1.7.0
 huggingface_hub==1.30.0
 bcrypt==4.2.0
 psycopg[binary]==3.2.3
-langgraph==1.2.11
+langgraph==1.2.14
 langchain-core==1.6.3
